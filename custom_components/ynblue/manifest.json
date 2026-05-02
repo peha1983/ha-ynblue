@@ -1,12 +1,12 @@
 {
   "domain": "ynblue",
   "name": "YnBlue",
-  "codeowners": ["@patrickhuebler"],
+  "codeowners": ["@peha1983"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/patrickhuebler/ha-ynblue",
+  "documentation": "https://github.com/peha1983/ha-ynblue",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/patrickhuebler/ha-ynblue/issues",
+  "issue_tracker": "https://github.com/peha1983/ha-ynblue/issues",
   "requirements": ["paho-mqtt==2.1.0"],
   "version": "0.1.0"
 }
