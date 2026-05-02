@@ -8,11 +8,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_LANGUAGE, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .client import YnBlueApiClient
-from .const import DEFAULT_LANGUAGE, PLATFORMS
+from .const import DEFAULT_LANGUAGE, DOMAIN, PLATFORMS
 from .coordinator import YnBlueCoordinator
 from .exceptions import YnBlueApiError, YnBlueAuthError, YnBlueMqttError
 from .helpers import build_entity_id
@@ -20,6 +21,7 @@ from .hub import YnBlueHub
 from .models import YnBlueRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(_hass: HomeAssistant, _config: dict) -> bool:
