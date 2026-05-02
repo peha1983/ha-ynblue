@@ -1,0 +1,7 @@
+{
+  "name": "YnBlue",
+  "content_in_root": false,
+  "domains": ["ynblue"],
+  "homeassistant": "2025.12.0",
+  "render_readme": true
+}

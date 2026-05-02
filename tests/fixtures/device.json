@@ -1,0 +1,140 @@
+{
+  "id": "6728deb3dd733500243dd844",
+  "owner": true,
+  "name": "Pool",
+  "functionalities": {
+    "filter": true,
+    "filter2": false,
+    "light": true,
+    "light2": false,
+    "RGBLight": true,
+    "switch": false,
+    "switch2": false,
+    "robot": true,
+    "swimJet": true,
+    "heater": true,
+    "solarHeater": false,
+    "electrolyser": true,
+    "chemPump": true,
+    "pHPump": true,
+    "meteo": true,
+    "waterLevel": false
+  },
+  "serialNumber": 501,
+  "hardwareVersion": 3,
+  "softwareVersion": "2",
+  "softwareRevision": "25",
+  "isConnected": true,
+  "system": {
+    "name": "Pool",
+    "poolVolume": 21,
+    "indoor": false,
+    "latitude": 43.117,
+    "longitude": 5.928,
+    "moduleName": "YnBlue",
+    "moduleVersion": "2",
+    "moduleRevision": "25",
+    "serialNumber": 501,
+    "flowDetection": 0,
+    "status": 49152,
+    "forceMeasurement": false
+  },
+  "pH": {
+    "mode": 1,
+    "target": 7.4,
+    "liquidLevel": 9.56,
+    "liquidLevelMax": 25,
+    "liquidLevelAlert": 2,
+    "liquidConso": 24.55,
+    "liquidLastDay": 0,
+    "status": false,
+    "sensorStatus": false,
+    "measured": 10,
+    "injection": {
+      "state": false,
+      "progress": -1,
+      "total": -1
+    }
+  },
+  "chemical": {
+    "globalMode": 2,
+    "sensorType": 1,
+    "mode": 0,
+    "target": 650,
+    "liquidLevel": 0,
+    "liquidLevelMax": 25,
+    "liquidLevelAlert": 2,
+    "liquidConso": 0,
+    "liquidLastDay": 0,
+    "status": false,
+    "sensorStatus": false,
+    "measured": 1106.47,
+    "estimated": 5472.41
+  },
+  "temperature": {
+    "measured": 21.08,
+    "measuredEpoch": 1777724965,
+    "status": true,
+    "offset": 0
+  },
+  "filter": {
+    "port": 0,
+    "mode": 2,
+    "priority": 0,
+    "switchOnTime": -1,
+    "switchOffTime": -1,
+    "state": true,
+    "durationSwitchOn": [0, 0, 0, 0],
+    "duration": [0, 0, 0, 0],
+    "conso": 6706470,
+    "pumpPower": 2000,
+    "flowProtection": false,
+    "name": "Filter"
+  },
+  "electrolyser": {
+    "port": 1,
+    "state": false,
+    "mode": 0,
+    "tempProtection": true,
+    "protectionMode": 1,
+    "name": "Salt"
+  },
+  "light": {
+    "port": -1,
+    "state": false,
+    "mode": 0,
+    "name": "Light"
+  },
+  "RGBLight": {
+    "port": 3,
+    "state": false,
+    "mode": 0,
+    "name": "RGB Light"
+  },
+  "robot": {
+    "port": -1,
+    "state": false,
+    "mode": 0,
+    "name": "Robot"
+  },
+  "swimJet": {
+    "port": -1,
+    "state": false,
+    "mode": 0,
+    "name": "SwimJet"
+  },
+  "heater": {
+    "port": 2,
+    "state": false,
+    "name": "Heater",
+    "mode": 0,
+    "target": 25
+  },
+  "meteo": {
+    "status": true
+  },
+  "wifi": {
+    "ssid": "FrenchCrap",
+    "rssi": -55
+  }
+}

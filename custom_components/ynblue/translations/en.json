@@ -1,0 +1,89 @@
+{
+  "title": "YnBlue",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect YnBlue",
+        "description": "Sign in with your YnBlue cloud account.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect YnBlue",
+        "description": "Re-enter the password for {email}.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The YnBlue credentials are invalid.",
+      "cannot_connect": "The YnBlue cloud could not be reached.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This YnBlue account is already configured.",
+      "reauth_successful": "YnBlue reauthentication completed successfully."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "water_temperature": { "name": "YnBlue water temperature" },
+      "ph_measured": { "name": "YnBlue pH measured" },
+      "chemical_measured": { "name": "YnBlue chemical measured" },
+      "chemical_estimated": { "name": "YnBlue chemical estimated" },
+      "ph_tank_level": { "name": "YnBlue pH tank level" },
+      "chemical_tank_level": { "name": "YnBlue chemical tank level" },
+      "wifi_rssi": { "name": "YnBlue Wi-Fi signal" }
+    },
+    "binary_sensor": {
+      "online": { "name": "YnBlue online" },
+      "filter_running": { "name": "YnBlue filter running" },
+      "heater_running": { "name": "YnBlue heater running" },
+      "electrolyser_running": { "name": "YnBlue electrolyser running" },
+      "ph_sensor_problem": { "name": "YnBlue pH sensor problem" },
+      "chemical_sensor_problem": { "name": "YnBlue chemical sensor problem" },
+      "meteo_available": { "name": "YnBlue weather data available" },
+      "force_measurement_active": { "name": "YnBlue force measurement active" }
+    },
+    "number": {
+      "pool_volume": { "name": "YnBlue pool volume" },
+      "ph_target": { "name": "YnBlue pH target" },
+      "chemical_target": { "name": "YnBlue chemical target" },
+      "heater_target": { "name": "YnBlue heater target" }
+    },
+    "select": {
+      "filter_mode": { "name": "YnBlue filter mode" },
+      "heater_mode": { "name": "YnBlue heater mode" },
+      "chemical_mode": { "name": "YnBlue chemical mode" },
+      "ph_mode": { "name": "YnBlue pH mode" },
+      "electrolyser_protection_mode": { "name": "YnBlue electrolyser protection mode" }
+    },
+    "switch": {
+      "robot": { "name": "YnBlue robot" },
+      "swim_jet": { "name": "YnBlue swim jet" },
+      "fountain": { "name": "YnBlue fountain" },
+      "aux_switch": { "name": "YnBlue aux switch" },
+      "aux_switch_2": { "name": "YnBlue aux switch 2" },
+      "electrolyser_temp_protection": { "name": "YnBlue electrolyser low temperature protection" }
+    },
+    "light": {
+      "light": { "name": "YnBlue light" },
+      "light2": { "name": "YnBlue light 2" },
+      "rgb_light": { "name": "YnBlue RGB light" }
+    },
+    "button": {
+      "request_snapshot": { "name": "YnBlue request snapshot" },
+      "force_measurement": { "name": "YnBlue force measurement" },
+      "restart_controller": { "name": "YnBlue restart controller" },
+      "cycle_rgb_program": { "name": "YnBlue cycle RGB program" },
+      "inject_ph": { "name": "YnBlue inject 1L pH" },
+      "stop_ph_injection": { "name": "YnBlue stop pH injection" },
+      "reset_filter_consumption": { "name": "YnBlue reset filter consumption" },
+      "reset_ph_consumption": { "name": "YnBlue reset pH consumption" },
+      "reset_chemical_consumption": { "name": "YnBlue reset chemical consumption" }
+    }
+  }
+}
