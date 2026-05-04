@@ -1,9 +1,9 @@
 {
   "domain": "ynblue",
   "name": "YnBlue",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@peha1983"],
   "config_flow": true,
-  "after_dependencies": ["recorder"],
   "dependencies": [],
   "documentation": "https://github.com/peha1983/ha-ynblue",
   "iot_class": "cloud_polling",
