@@ -31,6 +31,12 @@ class YnBlueCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Refresh account metadata from YnBlue."""
+
+        return await self.async_fetch_metadata()
+
+    async def async_fetch_metadata(self) -> dict[str, dict[str, Any]]:
+        """Fetch metadata from YnBlue without mutating coordinator state."""
+
         devices = await self.api.async_get_devices()
 
         existing = self.data if isinstance(self.data, dict) else {}
@@ -41,6 +47,13 @@ class YnBlueCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             merged_devices[device_id] = deep_merge_dict(previous, device)
 
         return merged_devices
+
+    async def async_refresh_metadata(self) -> dict[str, dict[str, Any]]:
+        """Refresh coordinator state from the YnBlue API."""
+
+        data = await self.async_fetch_metadata()
+        self.async_set_updated_data(data)
+        return data
 
     @callback
     def async_update_device(self, device_id: str, updates: dict[str, Any]) -> None:

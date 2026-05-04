@@ -10,9 +10,11 @@ from homeassistant.components.number import NumberEntity, NumberEntityDescriptio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature, UnitOfVolume
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .entity import YnBlueEntity
+from .helpers import should_create_entity
 from .models import YnBlueRuntimeData
 
 ValueFn = Callable[[dict[str, Any]], float]
@@ -97,10 +99,20 @@ async def async_setup_entry(
     """Set up YnBlue numbers."""
 
     runtime: YnBlueRuntimeData = entry.runtime_data
+    registry = er.async_get(_hass)
+    registered_unique_ids = {
+        registry_entry.unique_id for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
     entities: list[YnBlueNumber] = []
     for device_id, device in runtime.coordinator.data.items():
         for description in NUMBER_DESCRIPTIONS:
-            if description.exists_fn(device):
+            if should_create_entity(
+                device,
+                device_id=device_id,
+                key=description.key,
+                exists_fn=description.exists_fn,
+                registered_unique_ids=registered_unique_ids,
+            ):
                 entities.append(YnBlueNumber(runtime, device_id, description))
     async_add_entities(entities)
 
@@ -125,15 +137,15 @@ class YnBlueNumber(YnBlueEntity, NumberEntity):
     def native_value(self) -> float | None:
         """Return the current value."""
 
-        if self.device_data is None:
-            return None
-        return self.entity_description.value_fn(self.device_data)
+        if self.has_current_data and self.device_data is not None:
+            return self.entity_description.value_fn(self.device_data)
+        return self.get_restored_number()
 
     @property
     def native_min_value(self) -> float:
         """Return the minimum value."""
 
-        if self.entity_description.min_fn is not None and self.device_data is not None:
+        if self.entity_description.min_fn is not None and self.has_current_data and self.device_data is not None:
             return self.entity_description.min_fn(self.device_data)
         return float(self.entity_description.native_min_value or 0)
 
@@ -141,17 +153,20 @@ class YnBlueNumber(YnBlueEntity, NumberEntity):
     def native_max_value(self) -> float:
         """Return the maximum value."""
 
-        if self.entity_description.max_fn is not None and self.device_data is not None:
+        if self.entity_description.max_fn is not None and self.has_current_data and self.device_data is not None:
             return self.entity_description.max_fn(self.device_data)
+        if self.entity_description.key == "chemical_target":
+            sensor_type = (self.restored_attributes or {}).get("sensor_type")
+            return 1000.0 if sensor_type == 1 else 5.0
         return float(self.entity_description.native_max_value or 0)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra attributes."""
 
-        if self.device_data is None or self.entity_description.attrs_fn is None:
-            return None
-        return self.entity_description.attrs_fn(self.device_data)
+        if self.has_current_data and self.device_data is not None and self.entity_description.attrs_fn is not None:
+            return self.entity_description.attrs_fn(self.device_data)
+        return self.restored_attributes
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the native value."""

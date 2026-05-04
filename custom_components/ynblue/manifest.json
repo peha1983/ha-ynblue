@@ -5,8 +5,8 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/peha1983/ha-ynblue",
-  "iot_class": "cloud_push",
+  "iot_class": "cloud_poll",
   "issue_tracker": "https://github.com/peha1983/ha-ynblue/issues",
   "requirements": ["paho-mqtt==2.1.0"],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

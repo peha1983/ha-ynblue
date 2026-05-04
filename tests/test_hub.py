@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from custom_components.ynblue.client import YnBlueApiClient
 from custom_components.ynblue.coordinator import YnBlueCoordinator
+from custom_components.ynblue.exceptions import YnBlueCommandError, YnBlueMqttError
 from custom_components.ynblue.hub import YnBlueHub
 
 
@@ -20,7 +23,6 @@ async def test_hub_process_message_updates_state(hass, config_entry, device_payl
     coordinator = YnBlueCoordinator(hass, config_entry, api)
     coordinator.async_set_updated_data({device_payload["id"]: device_payload})
     hub = YnBlueHub(hass, config_entry, coordinator, api)
-    hub._mqtt_connected.set()
 
     await hub.async_process_message(
         f"/YnBlue/{device_payload['id']}/data/json/measured",
@@ -34,7 +36,7 @@ async def test_hub_process_message_updates_state(hass, config_entry, device_payl
 
 
 async def test_pool_volume_command_payload(hass, config_entry, device_payload):
-    """Test the pool volume payload format."""
+    """Test that pool volume commands publish the expected payload and confirm state."""
 
     api = YnBlueApiClient(
         session=None,  # type: ignore[arg-type]
@@ -45,37 +47,21 @@ async def test_pool_volume_command_payload(hass, config_entry, device_payload):
     coordinator.async_set_updated_data({device_payload["id"]: device_payload})
     hub = YnBlueHub(hass, config_entry, coordinator, api)
 
-    with patch.object(hub, "async_publish", AsyncMock()) as async_publish:
+    with (
+        patch.object(hub, "async_publish", AsyncMock()) as async_publish,
+        patch.object(
+            hub,
+            "_async_request_snapshot_locked",
+            AsyncMock(return_value={"system": {"poolVolume": 42}}),
+        ) as async_snapshot,
+    ):
         await hub.async_set_pool_volume(device_payload["id"], 42)
 
     async_publish.assert_awaited_once_with(
         f"/YnBlue/{device_payload['id']}/system/poolVolume",
         {"poolVolume": 42},
     )
-
-
-async def test_request_snapshot_uses_live_mqtt_when_available(hass, config_entry, device_payload):
-    """Test that snapshot requests stay on the existing MQTT session once the hub is connected."""
-
-    api = YnBlueApiClient(
-        session=None,  # type: ignore[arg-type]
-        email="patrick@example.com",
-        password="secret",
-    )
-    coordinator = YnBlueCoordinator(hass, config_entry, api)
-    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
-    hub = YnBlueHub(hass, config_entry, coordinator, api)
-
-    hub._mqtt_client = object()  # type: ignore[assignment]
-    hub._mqtt_connected.set()
-
-    with patch.object(hub, "async_publish", AsyncMock()) as async_publish:
-        await hub.async_request_snapshot(device_payload["id"])
-
-    async_publish.assert_awaited_once_with(
-        f"/YnBlue/{device_payload['id']}/json/all",
-        {"state": True},
-    )
+    async_snapshot.assert_awaited_once_with(device_payload["id"])
 
 
 async def test_request_snapshot_merges_fetched_snapshot(hass, config_entry, device_payload):
@@ -108,3 +94,123 @@ async def test_request_snapshot_merges_fetched_snapshot(hass, config_entry, devi
     assert device["temperature"]["measured"] == 20.875
     assert device["pH"]["measured"] == 7.4
     assert device["isConnected"] is True
+
+
+async def test_startup_keeps_entities_available_when_device_is_offline(hass, config_entry, device_payload):
+    """Test that startup succeeds without snapshot traffic when the controller is offline."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data(
+        {
+            device_payload["id"]: {
+                "id": device_payload["id"],
+                "isConnected": False,
+                "functionalities": device_payload["functionalities"],
+            }
+        }
+    )
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with patch.object(hub, "async_request_snapshot", AsyncMock()) as async_request_snapshot:
+        await hub.async_start()
+        await hub.async_stop()
+
+    device = coordinator.get_device(device_payload["id"])
+    assert device is not None
+    assert hub.available is False
+    assert device["isConnected"] is False
+    async_request_snapshot.assert_not_awaited()
+
+
+async def test_refresh_requests_snapshot_after_online_transition(hass, config_entry, device_payload):
+    """Test that a device returning online triggers an immediate snapshot refresh."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+    hub._last_known_connectivity[device_payload["id"]] = False
+
+    with patch.object(hub, "async_request_snapshot", AsyncMock()) as async_request_snapshot:
+        await hub.async_refresh_now(refresh_metadata=False)
+
+    async_request_snapshot.assert_awaited_once_with(device_payload["id"])
+
+
+async def test_offline_commands_are_rejected(hass, config_entry, device_payload):
+    """Test that mutating commands fail closed while the controller is offline."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    offline_payload = dict(device_payload)
+    offline_payload["isConnected"] = False
+
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: offline_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with pytest.raises(YnBlueCommandError):
+        await hub.async_set_pool_volume(device_payload["id"], 42)
+
+
+async def test_ph_mode_command_uses_regulation_toggle_payload(hass, config_entry, device_payload):
+    """Test that pH mode changes use the regulation payload, not manual injection."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with (
+        patch.object(hub, "async_publish", AsyncMock()) as async_publish,
+        patch.object(
+            hub,
+            "_async_request_snapshot_locked",
+            AsyncMock(return_value={"pH": {"mode": 1, "target": 7.4}}),
+        ),
+    ):
+        await hub.async_set_ph_mode(device_payload["id"], 1)
+
+    async_publish.assert_awaited_once_with(
+        f"/YnBlue/{device_payload['id']}/pH/mode",
+        {"mode": "1", "value": "7.40"},
+    )
+
+
+async def test_startup_logs_snapshot_failures_but_stays_running(hass, config_entry, device_payload):
+    """Test that an online startup tolerates snapshot failures and keeps the runtime active."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with patch.object(
+        hub,
+        "async_request_snapshot",
+        AsyncMock(side_effect=YnBlueMqttError("controller offline")),
+    ) as async_request_snapshot:
+        await hub.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="startup")
+
+    assert hub.available is True
+    async_request_snapshot.assert_awaited_once_with(device_payload["id"])

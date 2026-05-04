@@ -36,7 +36,8 @@
       "chemical_estimated": { "name": "YnBlue chemical estimated" },
       "ph_tank_level": { "name": "YnBlue pH tank level" },
       "chemical_tank_level": { "name": "YnBlue chemical tank level" },
-      "wifi_rssi": { "name": "YnBlue Wi-Fi signal" }
+      "wifi_rssi": { "name": "YnBlue Wi-Fi signal" },
+      "last_cloud_contact": { "name": "YnBlue last cloud contact" }
     },
     "binary_sensor": {
       "online": { "name": "YnBlue online" },

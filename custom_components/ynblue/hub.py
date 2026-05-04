@@ -1,43 +1,61 @@
-"""MQTT runtime hub for YnBlue."""
+"""Runtime hub for YnBlue state refreshes and commands."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import math
 import queue
 import ssl
 import threading
 import time
-from datetime import timedelta
+import uuid
+from collections.abc import Mapping
+from contextlib import suppress
 from typing import Any
 
 import paho.mqtt.client as mqtt
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 
 from .client import YnBlueApiClient
 from .const import (
-    AUTH_REFRESH_FALLBACK,
+    CHEMICAL_MODE_OPTIONS,
+    COMMAND_SETTLE_DELAY,
     ELECTROLYSER_PROTECTION_OPTIONS,
+    FILTER_MODE_OPTIONS,
+    FORCE_MEASUREMENT_SETTLE_DELAY,
+    FORCE_MEASUREMENT_TOGGLE_DELAY,
+    HEATER_MODE_OPTIONS,
     INITIAL_SNAPSHOT_DELAY,
+    METADATA_REFRESH_INTERVAL,
     MQTT_CONNECT_TIMEOUT,
     MQTT_HOST,
     MQTT_KEEPALIVE,
     MQTT_PATH,
     MQTT_PORT,
     MQTT_USERNAME,
+    PH_MODE_OPTIONS,
+    RESTART_RECOVERY_DELAY,
+    SNAPSHOT_REFRESH_INTERVAL,
     SNAPSHOT_RESPONSE_TIMEOUT,
 )
 from .coordinator import YnBlueCoordinator
-from .exceptions import YnBlueAuthError, YnBlueMqttError
+from .exceptions import (
+    YnBlueAuthError,
+    YnBlueCommandError,
+    YnBlueMqttError,
+    YnBlueValidationError,
+)
 from .helpers import deep_merge_dict, get_nested_value, set_nested_value
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class YnBlueHub:
-    """Own the MQTT connection and write operations."""
+    """Coordinate periodic refreshes and validated write operations."""
 
     def __init__(
         self,
@@ -47,162 +65,149 @@ class YnBlueHub:
         api: YnBlueApiClient,
     ) -> None:
         """Initialize the hub."""
+
         self.hass = hass
         self.config_entry = config_entry
         self.coordinator = coordinator
         self.api = api
-        self._mqtt_client: mqtt.Client | None = None
-        self._mqtt_connected = asyncio.Event()
+        self._runtime_ready = asyncio.Event()
         self._start_lock = asyncio.Lock()
+        self._refresh_lock = asyncio.Lock()
+        self._device_locks: dict[str, asyncio.Lock] = {}
+        self._polling_task: asyncio.Task[None] | None = None
+        self._remove_stop_listener: Any | None = None
         self._stopped = False
         self._started = False
-        self._token_refresh_task: asyncio.Task[None] | None = None
-        self._reconnecting = False
+        self._last_snapshot_success: dict[str, float] = {}
+        self._last_known_connectivity: dict[str, bool] = {}
 
     @property
     def available(self) -> bool:
-        """Return whether the MQTT connection is available."""
+        """Return whether the runtime is active."""
 
-        return self._mqtt_connected.is_set()
+        return self._runtime_ready.is_set()
 
     async def async_start(self) -> None:
-        """Start the MQTT connection."""
+        """Start the YnBlue runtime."""
 
         async with self._start_lock:
             if self._started:
                 return
 
             self._stopped = False
-            await self._async_prime_snapshots()
-            self._mqtt_connected.set()
+            await self.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="startup")
+            self._runtime_ready.set()
+            self._remove_stop_listener = self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STOP,
+                self._async_handle_hass_stop,
+            )
+            self._polling_task = self.hass.async_create_task(self._async_polling_loop())
             self._started = True
 
     async def async_stop(self) -> None:
-        """Stop the MQTT runtime."""
+        """Stop the YnBlue runtime."""
 
         self._stopped = True
-        self._mqtt_connected.clear()
+        self._runtime_ready.clear()
 
-        if self._token_refresh_task is not None:
-            self._token_refresh_task.cancel()
-            self._token_refresh_task = None
+        if self._remove_stop_listener is not None:
+            self._remove_stop_listener()
+            self._remove_stop_listener = None
 
-        if self._mqtt_client is not None:
-            client = self._mqtt_client
-            self._mqtt_client = None
-            await self.hass.async_add_executor_job(_disconnect_client, client)
+        if self._polling_task is not None:
+            self._polling_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._polling_task
+            self._polling_task = None
 
         self._started = False
 
     async def async_reconnect(self) -> None:
-        """Refresh the current YnBlue snapshot state."""
+        """Refresh metadata and force a fresh snapshot cycle."""
 
-        if self._reconnecting or self._stopped:
-            return
+        await self.async_refresh_now(force_snapshot=True, reason="manual_reconnect")
 
-        self._reconnecting = True
-        try:
-            self._mqtt_connected.clear()
-            await self._async_prime_snapshots()
-            self._mqtt_connected.set()
-        finally:
-            self._reconnecting = False
+    async def async_refresh_now(
+        self,
+        *,
+        force_snapshot: bool = False,
+        refresh_metadata: bool = True,
+        reason: str = "manual",
+    ) -> None:
+        """Refresh coordinator metadata and device snapshots."""
 
-    async def _async_connect(self, token: str) -> None:
-        """Create and connect the MQTT client."""
-
-        self._mqtt_connected.clear()
-        client_id = f"ha_{self.config_entry.entry_id[:8]}"
-        client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2,
-            client_id=client_id,
-            transport="websockets",
-            protocol=mqtt.MQTTv311,
-        )
-        tls_context = await self.hass.async_add_executor_job(_build_tls_context)
-        client.tls_set_context(tls_context)
-        client.username_pw_set(MQTT_USERNAME, token)
-        client.ws_set_options(path=MQTT_PATH)
-        client.reconnect_delay_set(min_delay=1, max_delay=60)
-        client.on_connect = self._on_connect
-        client.on_disconnect = self._on_disconnect
-        client.on_message = self._on_message
-
-        self._mqtt_client = client
-        _LOGGER.debug("Connecting to YnBlue MQTT at %s:%s", MQTT_HOST, MQTT_PORT)
-        try:
-            await self.hass.async_add_executor_job(_connect_client, client)
-        except OSError as err:
-            self._mqtt_client = None
-            raise YnBlueMqttError(f"Could not connect to YnBlue MQTT: {err}") from err
-
-        try:
-            async with asyncio.timeout(MQTT_CONNECT_TIMEOUT):
-                await self._mqtt_connected.wait()
-        except TimeoutError as err:
-            await self.hass.async_add_executor_job(_disconnect_client, client)
-            self._mqtt_client = None
-            raise YnBlueMqttError("Timed out waiting for the YnBlue MQTT connection") from err
-
-    async def _async_refresh_loop(self) -> None:
-        """Refresh the JWT before it expires."""
-
-        while not self._stopped:
-            wait_seconds = self.api.seconds_until_expiry
-            if wait_seconds is None:
-                delay = AUTH_REFRESH_FALLBACK
-            else:
-                delay = timedelta(seconds=max(300, min(wait_seconds - 300, AUTH_REFRESH_FALLBACK.total_seconds())))
-
-            try:
-                await asyncio.sleep(delay.total_seconds())
-                if self._stopped:
-                    return
-                old_token = self.api.token
-                await self.api.async_ensure_auth()
-                if self.api.token != old_token:
-                    await self.async_reconnect()
-            except asyncio.CancelledError:
-                raise
-            except YnBlueAuthError:
-                await self._async_start_reauth()
+        async with self._refresh_lock:
+            if self._stopped:
                 return
-            except Exception:
-                _LOGGER.exception("Unexpected error while refreshing the YnBlue JWT")
+
+            if refresh_metadata:
+                try:
+                    await self.coordinator.async_refresh_metadata()
+                except YnBlueAuthError:
+                    await self._async_start_reauth()
+                    raise
+
+            self._prune_removed_devices()
+            await self._async_refresh_due_snapshots(force_snapshot=force_snapshot, reason=reason)
+            self._runtime_ready.set()
 
     async def async_request_snapshot(self, device_id: str) -> None:
-        """Request a fresh all-in-one state snapshot from YnBlue."""
+        """Request a fresh state snapshot for one device."""
 
-        if self.available and self._mqtt_client is not None:
-            await self.async_publish(f"/YnBlue/{device_id}/json/all", {"state": True})
-            return
-
-        token = await self.api.async_ensure_auth()
-        snapshot = await self.hass.async_add_executor_job(_fetch_snapshot_payload, device_id, token)
-        snapshot["isConnected"] = True
-        existing = self.coordinator.get_device(device_id) or {}
-        self.coordinator.async_update_device(device_id, deep_merge_dict(existing, snapshot))
+        async with self._async_device_lock(device_id):
+            await self._async_request_snapshot_locked(device_id)
 
     async def async_restart_device(self, device_id: str) -> None:
         """Restart the YnBlue controller."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/system/restart", {"state": True})
+        async with self._async_device_lock(device_id):
+            self._require_online_device(device_id)
+            try:
+                await self.async_publish(f"/YnBlue/{device_id}/system/restart", {"state": True})
+            except YnBlueMqttError as err:
+                raise YnBlueCommandError(f"Could not restart YnBlue controller {device_id}") from err
+
+            self._last_snapshot_success.pop(device_id, None)
+            self._last_known_connectivity[device_id] = False
+            existing = self.coordinator.get_device(device_id) or {}
+            self.coordinator.async_update_device(
+                device_id,
+                deep_merge_dict(existing, {"isConnected": False}),
+            )
+
+        self.hass.async_create_task(
+            self._async_refresh_after_delay(RESTART_RECOVERY_DELAY, reason=f"restart_recovery:{device_id}")
+        )
 
     async def async_force_measurement(self, device_id: str) -> None:
-        """Trigger a manual measurement pulse."""
+        """Trigger a manual measurement pulse and refresh the resulting state."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/system/forceMeasurement", {"state": True})
-        await asyncio.sleep(1)
-        await self.async_publish(f"/YnBlue/{device_id}/system/forceMeasurement", {"state": False})
+        async with self._async_device_lock(device_id):
+            self._require_online_device(device_id)
+            try:
+                await self.async_publish(f"/YnBlue/{device_id}/system/forceMeasurement", {"state": True})
+                await asyncio.sleep(FORCE_MEASUREMENT_TOGGLE_DELAY)
+                await self.async_publish(f"/YnBlue/{device_id}/system/forceMeasurement", {"state": False})
+                await asyncio.sleep(FORCE_MEASUREMENT_SETTLE_DELAY)
+                await self._async_request_snapshot_locked(device_id)
+            except YnBlueMqttError as err:
+                raise YnBlueCommandError(f"Could not complete a forced measurement for {device_id}") from err
 
     async def async_set_pool_volume(self, device_id: str, value: float) -> None:
         """Update the pool volume."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/system/poolVolume", {"poolVolume": value})
+        self._validate_range("pool volume", value, minimum=1, maximum=500)
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/system/poolVolume",
+            {"poolVolume": value},
+            expected_state={"system": {"poolVolume": value}},
+        )
 
     async def async_set_filter_mode(self, device_id: str, section: str, mode: int) -> None:
         """Update the filter mode."""
 
+        self._validate_mode("filter mode", mode, FILTER_MODE_OPTIONS)
         filter_data = get_nested_value(self.coordinator.get_device(device_id), section, default={}) or {}
         payload: dict[str, Any] = {"mode": mode}
         if mode == 4:
@@ -212,11 +217,17 @@ class YnBlueHub:
             if duration_vs is not None:
                 payload["param3"] = _first_or_full(duration_vs)
 
-        await self.async_publish(f"/YnBlue/{device_id}/{section}/mode", payload)
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/{section}/mode",
+            payload,
+            expected_state={section: {"mode": mode}},
+        )
 
     async def async_set_heater_mode(self, device_id: str, section: str, mode: int) -> None:
         """Update the heater mode."""
 
+        self._validate_mode("heater mode", mode, HEATER_MODE_OPTIONS)
         heater = get_nested_value(self.coordinator.get_device(device_id), section, default={}) or {}
         payload: dict[str, Any] = {"mode": mode}
         if mode == 1:
@@ -225,11 +236,18 @@ class YnBlueHub:
         else:
             payload["param1"] = 0
             payload["param2"] = 0
-        await self.async_publish(f"/YnBlue/{device_id}/{section}/mode", payload)
+
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/{section}/mode",
+            payload,
+            expected_state={section: {"mode": mode}},
+        )
 
     async def async_set_heater_target(self, device_id: str, section: str, target: float) -> None:
         """Update the heater target temperature."""
 
+        self._validate_range("heater target", target, minimum=0, maximum=40)
         heater = get_nested_value(self.coordinator.get_device(device_id), section, default={}) or {}
         mode = int(heater.get("mode", 0))
         payload = {
@@ -237,101 +255,143 @@ class YnBlueHub:
             "param1": target if mode == 1 else 0,
             "param2": heater.get("meteoTempOffset", 0) if mode == 1 else 0,
         }
-        await self.async_publish(f"/YnBlue/{device_id}/{section}/mode", payload)
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/{section}/mode",
+            payload,
+            expected_state={section: {"target": target}},
+        )
 
     async def async_set_chemical_mode(self, device_id: str, mode: int) -> None:
         """Update the chemical dosing mode."""
 
+        self._validate_mode("chemical mode", mode, CHEMICAL_MODE_OPTIONS)
         chemical = get_nested_value(self.coordinator.get_device(device_id), "chemical", default={}) or {}
-        await self.async_publish(
+        target = float(chemical.get("target", 650))
+        await self._async_execute_command(
+            device_id,
             f"/YnBlue/{device_id}/chemical/mode",
-            {"mode": mode, "value": chemical.get("target", 650)},
+            {"mode": mode, "value": target},
+            expected_state={"chemical": {"mode": mode}},
         )
 
     async def async_set_chemical_target(self, device_id: str, value: float) -> None:
         """Update the chemical target."""
 
         chemical = get_nested_value(self.coordinator.get_device(device_id), "chemical", default={}) or {}
-        await self.async_publish(
+        maximum = 1000 if chemical.get("sensorType") == 1 else 5
+        self._validate_range("chemical target", value, minimum=0, maximum=maximum)
+        await self._async_execute_command(
+            device_id,
             f"/YnBlue/{device_id}/chemical/mode",
             {"mode": int(chemical.get("mode", 0)), "value": value},
+            expected_state={"chemical": {"target": value}},
         )
 
     async def async_set_ph_mode(self, device_id: str, mode: int) -> None:
-        """Update the pH mode."""
+        """Enable or disable automatic pH regulation."""
 
+        self._validate_mode("pH mode", mode, PH_MODE_OPTIONS)
         ph = get_nested_value(self.coordinator.get_device(device_id), "pH", default={}) or {}
-        if mode == 2:
-            await self.async_publish(f"/YnBlue/{device_id}/pH/mode", {"mode": 2, "value": 1})
-            return
-
-        await self.async_publish(
+        target = float(ph.get("target", 7.2))
+        await self._async_execute_command(
+            device_id,
             f"/YnBlue/{device_id}/pH/mode",
-            {
-                "mode": str(mode),
-                "value": f"{float(ph.get('target', 7.2)):.2f}",
-            },
+            {"mode": str(mode), "value": f"{target:.2f}"},
+            expected_state={"pH": {"mode": mode}},
         )
 
     async def async_stop_ph_injection(self, device_id: str) -> None:
         """Stop the current manual pH injection."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/pH/mode", {"mode": 2, "value": 0})
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/pH/mode",
+            {"mode": 2, "value": 0},
+            post_delay=COMMAND_SETTLE_DELAY,
+        )
 
     async def async_inject_ph(self, device_id: str) -> None:
         """Start a 1L manual pH injection."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/pH/mode", {"mode": 2, "value": 1})
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/pH/mode",
+            {"mode": 2, "value": 1},
+            post_delay=COMMAND_SETTLE_DELAY,
+        )
 
     async def async_set_ph_target(self, device_id: str, value: float) -> None:
         """Update the pH target."""
 
+        self._validate_range("pH target", value, minimum=3, maximum=10)
         ph = get_nested_value(self.coordinator.get_device(device_id), "pH", default={}) or {}
         mode = 1 if int(ph.get("mode", 0)) == 1 else 0
-        await self.async_publish(
+        await self._async_execute_command(
+            device_id,
             f"/YnBlue/{device_id}/pH/mode",
             {"mode": str(mode), "value": f"{value:.2f}"},
+            expected_state={"pH": {"target": value}},
         )
 
     async def async_set_electrolyser_temp_protection(self, device_id: str, enabled: bool) -> None:
-        """Toggle electrolyser low temperature protection."""
+        """Toggle electrolyser low-temperature protection."""
 
-        await self.async_publish(
+        await self._async_execute_command(
+            device_id,
             f"/YnBlue/{device_id}/electrolyser/tempProtection",
             {"mode": bool(enabled)},
+            expected_state={"electrolyser": {"tempProtection": bool(enabled)}},
         )
 
     async def async_set_electrolyser_protection_mode(self, device_id: str, mode: int) -> None:
         """Set the electrolyser protection mode."""
 
-        if mode not in ELECTROLYSER_PROTECTION_OPTIONS:
-            raise ValueError(f"Unsupported electrolyser protection mode: {mode}")
-        await self.async_publish(
+        self._validate_mode("electrolyser protection mode", mode, ELECTROLYSER_PROTECTION_OPTIONS)
+        await self._async_execute_command(
+            device_id,
             f"/YnBlue/{device_id}/electrolyser/protectionMode",
             {"mode": mode},
+            expected_state={"electrolyser": {"protectionMode": mode}},
         )
 
     async def async_set_port_state(self, device_id: str, section: str, enabled: bool) -> None:
         """Toggle a simple on/off port-based output."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/{section}/state", {"state": enabled})
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/{section}/state",
+            {"state": bool(enabled)},
+            expected_state={section: {"state": bool(enabled)}},
+        )
 
     async def async_cycle_rgb(self, device_id: str) -> None:
         """Cycle the RGB light program."""
 
         rgb_light = get_nested_value(self.coordinator.get_device(device_id), "RGBLight", default={}) or {}
         next_state = not bool(rgb_light.get("state"))
-        await self.async_publish(f"/YnBlue/{device_id}/RGBLight/changeRGB", {"state": next_state})
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/RGBLight/changeRGB",
+            {"state": next_state},
+        )
 
     async def async_reset_consumption(self, device_id: str, section: str) -> None:
-        """Reset a consumption counter."""
+        """Reset a consumption counter and refresh state afterward."""
 
-        await self.async_publish(f"/YnBlue/{device_id}/{section}/consoReset", {"state": True})
+        await self._async_execute_command(
+            device_id,
+            f"/YnBlue/{device_id}/{section}/consoReset",
+            {},
+        )
 
     async def async_publish(self, topic: str, payload: dict[str, Any], retain: bool = False) -> None:
         """Publish a JSON message to YnBlue over a short-lived MQTT session."""
 
-        token = await self.api.async_reauthenticate()
+        if not topic.startswith("/YnBlue/"):
+            raise YnBlueValidationError("Refusing to publish outside the YnBlue topic namespace")
+
+        token = await self.api.async_ensure_auth()
         await self.hass.async_add_executor_job(
             _publish_ephemeral_message,
             topic,
@@ -340,52 +400,8 @@ class YnBlueHub:
             retain,
         )
 
-    def _on_connect(
-        self,
-        client: mqtt.Client,
-        _userdata: Any,
-        _flags: mqtt.ConnectFlags,
-        reason_code: mqtt.ReasonCode,
-        _properties: mqtt.Properties | None,
-    ) -> None:
-        """Handle MQTT connect callbacks."""
-
-        if reason_code.is_failure:
-            _LOGGER.error("YnBlue MQTT connect failed: %s", reason_code)
-            self.hass.loop.call_soon_threadsafe(self._mqtt_connected.clear)
-            return
-
-        _LOGGER.info("YnBlue MQTT connected for entry %s", self.config_entry.entry_id)
-        for topic in _subscription_topics(self.coordinator.data.keys()):
-            client.subscribe(topic)
-
-        self.hass.loop.call_soon_threadsafe(self._mqtt_connected.set)
-
-    def _on_disconnect(
-        self,
-        _client: mqtt.Client,
-        _userdata: Any,
-        _disconnect_flags: mqtt.DisconnectFlags,
-        reason_code: mqtt.ReasonCode,
-        _properties: mqtt.Properties | None,
-    ) -> None:
-        """Handle MQTT disconnect callbacks."""
-
-        _LOGGER.warning("YnBlue MQTT disconnected: %s", reason_code)
-        self.hass.loop.call_soon_threadsafe(self._mqtt_connected.clear)
-
-    def _on_message(self, _client: mqtt.Client, _userdata: Any, msg: mqtt.MQTTMessage) -> None:
-        """Handle incoming MQTT messages."""
-
-        try:
-            payload = msg.payload.decode("utf-8")
-        except UnicodeDecodeError:
-            _LOGGER.debug("Discarding non-UTF8 YnBlue MQTT payload for %s", msg.topic)
-            return
-        self.hass.add_job(self.async_process_message, msg.topic, payload)
-
     async def async_process_message(self, topic: str, payload: str) -> None:
-        """Parse and apply a state update."""
+        """Parse and apply a state update from a YnBlue MQTT payload."""
 
         try:
             message = json.loads(payload)
@@ -405,6 +421,7 @@ class YnBlueHub:
         if topic.endswith("/connected_ack"):
             state = str(body.get("state", "")).lower() == "true"
             self.coordinator.async_update_device(device_id, {"isConnected": state})
+            self._last_known_connectivity[device_id] = state
             return
 
         if topic.endswith("/notification_ack"):
@@ -414,19 +431,127 @@ class YnBlueHub:
             return
 
         section_path = topic.split("/data/json/", maxsplit=1)[1]
-        updates: dict[str, Any]
-        if section_path == "all" or section_path == "measured":
-            if not isinstance(body, dict):
-                return
-            updates = dict(body)
-        else:
-            if not isinstance(body, dict):
-                return
-            updates = set_nested_value(section_path.split("/"), body)
+        if not isinstance(body, dict):
+            return
+
+        updates = (
+            dict(body)
+            if section_path in {"all", "measured"}
+            else set_nested_value(section_path.split("/"), body)
+        )
 
         updates["isConnected"] = True
         existing = self.coordinator.get_device(device_id) or {}
         self.coordinator.async_update_device(device_id, deep_merge_dict(existing, updates))
+        self._last_known_connectivity[device_id] = True
+        self._last_snapshot_success[device_id] = time.monotonic()
+
+    async def _async_polling_loop(self) -> None:
+        """Continuously refresh metadata and due snapshots."""
+
+        while not self._stopped:
+            try:
+                await asyncio.sleep(METADATA_REFRESH_INTERVAL.total_seconds())
+                if self._stopped:
+                    return
+                await self.async_refresh_now(reason="periodic")
+            except asyncio.CancelledError:
+                raise
+            except YnBlueAuthError:
+                await self._async_start_reauth()
+                return
+            except Exception:
+                _LOGGER.exception("Unexpected error while refreshing YnBlue state")
+
+    async def _async_refresh_due_snapshots(self, *, force_snapshot: bool, reason: str) -> None:
+        """Refresh any online devices whose snapshots are due."""
+
+        now = time.monotonic()
+        due_devices: list[str] = []
+
+        for device_id, device in self.coordinator.data.items():
+            is_connected = bool(device.get("isConnected"))
+            was_connected = self._last_known_connectivity.get(device_id)
+            self._last_known_connectivity[device_id] = is_connected
+
+            if was_connected is True and not is_connected:
+                _LOGGER.info("YnBlue device %s is currently offline", device_id)
+            elif was_connected is False and is_connected:
+                _LOGGER.info("YnBlue device %s is back online", device_id)
+
+            if not is_connected:
+                continue
+
+            if force_snapshot or was_connected is not True or self._snapshot_due(device_id, now):
+                due_devices.append(device_id)
+
+        for device_id in due_devices:
+            try:
+                await self.async_request_snapshot(device_id)
+            except YnBlueMqttError as err:
+                _LOGGER.warning(
+                    "Could not fetch the YnBlue %s snapshot for %s: %s",
+                    reason,
+                    device_id,
+                    err,
+                )
+
+    async def _async_request_snapshot_locked(self, device_id: str) -> dict[str, Any]:
+        """Fetch and merge a full snapshot while holding the device lock."""
+
+        self._require_known_device(device_id)
+        token = await self.api.async_ensure_auth()
+        snapshot = await self.hass.async_add_executor_job(_fetch_snapshot_payload, device_id, token)
+        snapshot["isConnected"] = True
+        existing = self.coordinator.get_device(device_id) or {}
+        merged = deep_merge_dict(existing, snapshot)
+        self.coordinator.async_update_device(device_id, merged)
+        self._last_snapshot_success[device_id] = time.monotonic()
+        self._last_known_connectivity[device_id] = True
+        return snapshot
+
+    async def _async_execute_command(
+        self,
+        device_id: str,
+        topic: str,
+        payload: dict[str, Any],
+        *,
+        expected_state: Mapping[str, Any] | None = None,
+        post_delay: float = COMMAND_SETTLE_DELAY,
+    ) -> dict[str, Any]:
+        """Publish a command, refresh state, and verify the resulting snapshot."""
+
+        async with self._async_device_lock(device_id):
+            self._require_online_device(device_id)
+            try:
+                await self.async_publish(topic, payload)
+
+                if post_delay > 0:
+                    await asyncio.sleep(post_delay)
+
+                snapshot = await self._async_request_snapshot_locked(device_id)
+            except YnBlueMqttError as err:
+                raise YnBlueCommandError(f"Could not confirm YnBlue command for {device_id}") from err
+
+            if expected_state is not None and not _subset_matches(snapshot, expected_state):
+                raise YnBlueCommandError(
+                    f"YnBlue command to {topic} did not produce the expected device state"
+                )
+            return snapshot
+
+    async def _async_refresh_after_delay(self, delay: float, *, reason: str) -> None:
+        """Run a forced refresh after a grace delay."""
+
+        await asyncio.sleep(delay)
+        if self._stopped:
+            return
+
+        try:
+            await self.async_refresh_now(force_snapshot=True, reason=reason)
+        except YnBlueAuthError:
+            await self._async_start_reauth()
+        except Exception:
+            _LOGGER.exception("Delayed YnBlue refresh failed after %s", reason)
 
     async def _async_start_reauth(self) -> None:
         """Start Home Assistant reauthentication."""
@@ -440,18 +565,66 @@ class YnBlueHub:
             data=self.config_entry.data,
         )
 
-    async def _async_prime_snapshots(self) -> None:
-        """Populate coordinator state with fresh snapshots during startup."""
+    async def _async_handle_hass_stop(self, _event: Any) -> None:
+        """Stop the background runtime when Home Assistant shuts down."""
 
-        for device_id in self.coordinator.data:
-            await self.async_request_snapshot(device_id)
+        await self.async_stop()
 
+    def _prune_removed_devices(self) -> None:
+        """Drop cached runtime state for devices that no longer exist."""
 
-def _connect_client(client: mqtt.Client) -> None:
-    """Connect and start the Paho client loop."""
+        current_ids = set(self.coordinator.data)
+        for cache in (self._device_locks, self._last_snapshot_success, self._last_known_connectivity):
+            for device_id in tuple(cache):
+                if device_id not in current_ids:
+                    cache.pop(device_id, None)
 
-    client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
-    client.loop_start()
+    def _snapshot_due(self, device_id: str, now: float) -> bool:
+        """Return whether the next periodic snapshot is due."""
+
+        last_success = self._last_snapshot_success.get(device_id)
+        if last_success is None:
+            return True
+        return now - last_success >= SNAPSHOT_REFRESH_INTERVAL.total_seconds()
+
+    def _async_device_lock(self, device_id: str) -> asyncio.Lock:
+        """Return the per-device operation lock."""
+
+        return self._device_locks.setdefault(device_id, asyncio.Lock())
+
+    def _require_known_device(self, device_id: str) -> dict[str, Any]:
+        """Return the current device payload or raise."""
+
+        device = self.coordinator.get_device(device_id)
+        if device is None:
+            raise YnBlueValidationError(f"Unknown YnBlue device: {device_id}")
+        return device
+
+    def _require_online_device(self, device_id: str) -> dict[str, Any]:
+        """Return the current device payload when the controller is online."""
+
+        device = self._require_known_device(device_id)
+        if not bool(device.get("isConnected")):
+            raise YnBlueCommandError(
+                "The YnBlue controller is currently offline, so this command cannot be confirmed safely"
+            )
+        return device
+
+    @staticmethod
+    def _validate_mode(label: str, mode: int, options: Mapping[int, str]) -> None:
+        """Validate a numeric mode value against a known mapping."""
+
+        if mode not in options:
+            raise YnBlueValidationError(f"Unsupported {label}: {mode}")
+
+    @staticmethod
+    def _validate_range(label: str, value: float, *, minimum: float, maximum: float) -> None:
+        """Validate that a numeric value falls within a supported range."""
+
+        if value < minimum or value > maximum:
+            raise YnBlueValidationError(
+                f"{label.capitalize()} must be between {minimum} and {maximum}"
+            )
 
 
 def _build_tls_context() -> ssl.SSLContext:
@@ -514,7 +687,7 @@ def _fetch_snapshot_payload(device_id: str, token: str) -> dict[str, Any]:
         response_queue.put_nowait(payload)
 
     client = mqtt.Client(
-        client_id=f"ha_snapshot_{device_id[:8]}",
+        client_id=_build_client_id("ha_snapshot", device_id),
         transport="websockets",
         protocol=mqtt.MQTTv311,
     )
@@ -568,8 +741,9 @@ def _publish_ephemeral_message(topic: str, payload: str, token: str, retain: boo
             connect_error.append(str(result_code))
         connected.set()
 
+    device_id = topic.split("/")[2] if topic.startswith("/YnBlue/") else "unknown"
     client = mqtt.Client(
-        client_id="ha_command_session",
+        client_id=_build_client_id("ha_command", device_id),
         transport="websockets",
         protocol=mqtt.MQTTv311,
     )
@@ -592,51 +766,10 @@ def _publish_ephemeral_message(topic: str, payload: str, token: str, retain: boo
         _disconnect_client(client)
 
 
-def _subscription_topics(device_ids: Any) -> list[str]:
-    """Build the MQTT subscription list for all known devices."""
+def _build_client_id(prefix: str, device_id: str) -> str:
+    """Build a unique MQTT client identifier."""
 
-    topics: list[str] = []
-    suffixes = [
-        "data/json/all",
-        "data/json/system",
-        "data/json/temperature",
-        "data/json/localTime",
-        "data/json/filter",
-        "data/json/filter2",
-        "data/json/electrolyser",
-        "data/json/ozon",
-        "data/json/light",
-        "data/json/light2",
-        "data/json/RGBLight",
-        "data/json/switch",
-        "data/json/switch2",
-        "data/json/robot",
-        "data/json/swimJet",
-        "data/json/heater",
-        "data/json/solarHeater",
-        "data/json/chemical",
-        "data/json/chemical/calibration",
-        "data/json/chemical/injection",
-        "data/json/chemical/injectionExtra",
-        "data/json/chemical/injectionExtra2",
-        "data/json/ORP",
-        "data/json/ampero",
-        "data/json/waterLevel",
-        "data/json/waterLevel2",
-        "data/json/pH",
-        "data/json/pH/calibration",
-        "data/json/pH/injection",
-        "data/json/meteo",
-        "data/json/measured",
-        "data/json/lora",
-        "data/json/fountain",
-        "connected_ack",
-        "notification_ack",
-    ]
-    for device_id in device_ids:
-        for suffix in suffixes:
-            topics.append(f"/YnBlue/{device_id}/{suffix}")
-    return topics
+    return f"{prefix}_{device_id[:8]}_{uuid.uuid4().hex[:8]}"
 
 
 def _first_or_full(value: Any) -> Any:
@@ -645,3 +778,23 @@ def _first_or_full(value: Any) -> Any:
     if isinstance(value, list) and len(value) == 1:
         return value[0]
     return value
+
+
+def _subset_matches(actual: Any, expected: Any) -> bool:
+    """Return whether the expected subset matches the actual snapshot payload."""
+
+    if isinstance(expected, Mapping):
+        if not isinstance(actual, Mapping):
+            return False
+        return all(key in actual and _subset_matches(actual[key], value) for key, value in expected.items())
+
+    if isinstance(expected, bool):
+        return bool(actual) is expected
+
+    if isinstance(expected, int | float) and isinstance(actual, int | float | str):
+        try:
+            return math.isclose(float(actual), float(expected), rel_tol=0.0, abs_tol=0.05)
+        except (TypeError, ValueError):
+            return False
+
+    return actual == expected

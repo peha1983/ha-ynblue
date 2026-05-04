@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
 from .const import ENTITY_OBJECT_ID_BY_KEY
+
+ExistsFn = Callable[[dict[str, Any]], bool]
 
 
 def deep_merge_dict(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
@@ -74,3 +77,22 @@ def build_entity_id(unique_id: str, entity_domain: str) -> str | None:
     if object_id is None:
         return None
     return f"{entity_domain}.{object_id}"
+
+
+def build_unique_id(device_id: str, key: str) -> str:
+    """Return the canonical unique ID for a YnBlue entity."""
+
+    return f"{device_id}_{key}"
+
+
+def should_create_entity(
+    device: dict[str, Any],
+    *,
+    device_id: str,
+    key: str,
+    exists_fn: ExistsFn,
+    registered_unique_ids: set[str],
+) -> bool:
+    """Return whether an entity should be created for the current device payload."""
+
+    return exists_fn(device) or build_unique_id(device_id, key) in registered_unique_ids

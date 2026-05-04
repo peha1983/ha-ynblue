@@ -20,6 +20,12 @@ MQTT_USERNAME: Final = "JWT-client"
 MQTT_KEEPALIVE: Final = 60
 INITIAL_SNAPSHOT_DELAY: Final = 1.0
 SNAPSHOT_RESPONSE_TIMEOUT: Final = 10
+METADATA_REFRESH_INTERVAL: Final = timedelta(seconds=30)
+SNAPSHOT_REFRESH_INTERVAL: Final = timedelta(seconds=90)
+COMMAND_SETTLE_DELAY: Final = 2.0
+FORCE_MEASUREMENT_TOGGLE_DELAY: Final = 1.0
+FORCE_MEASUREMENT_SETTLE_DELAY: Final = 5.0
+RESTART_RECOVERY_DELAY: Final = 45.0
 
 AUTH_REFRESH_MARGIN: Final = timedelta(minutes=5)
 AUTH_REFRESH_FALLBACK: Final = timedelta(minutes=30)
@@ -61,7 +67,6 @@ CHEMICAL_MODE_OPTIONS: Final = {
 PH_MODE_OPTIONS: Final = {
     0: "Off",
     1: "Regulation",
-    2: "Manual Injection",
 }
 ELECTROLYSER_PROTECTION_OPTIONS: Final = {
     0: "None",
@@ -77,6 +82,7 @@ ENTITY_OBJECT_ID_BY_KEY: Final = {
     "ph_tank_level": "ynblue_ph_tank_level",
     "chemical_tank_level": "ynblue_chemical_tank_level",
     "wifi_rssi": "ynblue_wifi_signal",
+    "last_cloud_contact": "ynblue_last_cloud_contact",
     "online": "ynblue_online",
     "filter_running": "ynblue_filter_running",
     "heater_running": "ynblue_heater_running",
@@ -114,4 +120,4 @@ ENTITY_OBJECT_ID_BY_KEY: Final = {
     "reset_chemical_consumption": "ynblue_reset_chemical_consumption",
 }
 
-REDACT_CONFIG: Final = {"password", "token", "jwt", "registrationString"}
+REDACT_CONFIG: Final = {"email", "password", "token", "jwt", "registrationString"}

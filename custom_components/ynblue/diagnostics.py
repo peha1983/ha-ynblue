@@ -11,7 +11,14 @@ from homeassistant.core import HomeAssistant
 from .const import REDACT_CONFIG
 from .models import YnBlueRuntimeData
 
-DEVICE_REDACTIONS = {"registrationString", "latitude", "longitude"}
+DEVICE_REDACTIONS = {
+    "id",
+    "latitude",
+    "longitude",
+    "registrationString",
+    "serialNumber",
+    "ssid",
+}
 
 
 async def async_get_config_entry_diagnostics(_hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:

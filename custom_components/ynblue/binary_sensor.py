@@ -13,10 +13,11 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .entity import YnBlueEntity
-from .helpers import feature_enabled
+from .helpers import feature_enabled, should_create_entity
 from .models import YnBlueRuntimeData
 
 ValueFn = Callable[[dict[str, Any]], bool]
@@ -103,10 +104,20 @@ async def async_setup_entry(
     """Set up YnBlue binary sensors."""
 
     runtime: YnBlueRuntimeData = entry.runtime_data
+    registry = er.async_get(_hass)
+    registered_unique_ids = {
+        registry_entry.unique_id for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
     entities: list[YnBlueBinarySensor] = []
     for device_id, device in runtime.coordinator.data.items():
         for description in BINARY_SENSOR_DESCRIPTIONS:
-            if description.exists_fn(device):
+            if should_create_entity(
+                device,
+                device_id=device_id,
+                key=description.key,
+                exists_fn=description.exists_fn,
+                registered_unique_ids=registered_unique_ids,
+            ):
                 entities.append(YnBlueBinarySensor(runtime, device_id, description))
     async_add_entities(entities)
 
@@ -131,14 +142,14 @@ class YnBlueBinarySensor(YnBlueEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """Return the current state."""
 
-        if self.device_data is None:
-            return None
-        return self.entity_description.value_fn(self.device_data)
+        if self.has_current_data and self.device_data is not None:
+            return self.entity_description.value_fn(self.device_data)
+        return self.get_restored_bool()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra attributes."""
 
-        if self.device_data is None or self.entity_description.attrs_fn is None:
-            return None
-        return self.entity_description.attrs_fn(self.device_data)
+        if self.has_current_data and self.device_data is not None and self.entity_description.attrs_fn is not None:
+            return self.entity_description.attrs_fn(self.device_data)
+        return self.restored_attributes

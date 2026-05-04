@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -15,9 +16,12 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfVolume
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .entity import YnBlueEntity
+from .helpers import should_create_entity
 from .models import YnBlueRuntimeData
 
 ValueFn = Callable[[dict[str, Any]], Any]
@@ -126,6 +130,14 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         exists_fn=lambda device: "wifi" in device,
         attrs_fn=lambda device: {"ssid": device["wifi"].get("ssid")},
     ),
+    YnBlueSensorEntityDescription(
+        key="last_cloud_contact",
+        translation_key="last_cloud_contact",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda device: _datetime_from_milliseconds(device["date_mqtt_connection"]),
+        exists_fn=lambda device: "date_mqtt_connection" in device and device["date_mqtt_connection"] is not None,
+    ),
 )
 
 
@@ -137,10 +149,20 @@ async def async_setup_entry(
     """Set up YnBlue sensors from a config entry."""
 
     runtime: YnBlueRuntimeData = entry.runtime_data
+    registry = er.async_get(_hass)
+    registered_unique_ids = {
+        registry_entry.unique_id for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
     entities: list[YnBlueSensor] = []
     for device_id, device in runtime.coordinator.data.items():
         for description in SENSOR_DESCRIPTIONS:
-            if description.exists_fn(device):
+            if should_create_entity(
+                device,
+                device_id=device_id,
+                key=description.key,
+                exists_fn=description.exists_fn,
+                registered_unique_ids=registered_unique_ids,
+            ):
                 entities.append(YnBlueSensor(runtime, device_id, description))
     async_add_entities(entities)
 
@@ -165,22 +187,40 @@ class YnBlueSensor(YnBlueEntity, SensorEntity):
     def native_unit_of_measurement(self) -> str | None:
         """Return the native unit of measurement."""
 
-        if self.entity_description.unit_fn is not None and self.device_data is not None:
+        if self.entity_description.unit_fn is not None and self.has_current_data and self.device_data is not None:
             return self.entity_description.unit_fn(self.device_data)
+        restored_unit = (self.restored_attributes or {}).get("unit_of_measurement")
+        if isinstance(restored_unit, str):
+            return restored_unit
         return self.entity_description.native_unit_of_measurement
 
     @property
     def native_value(self) -> Any:
         """Return the native value."""
 
-        if self.device_data is None:
-            return None
-        return self.entity_description.value_fn(self.device_data)
+        if self.has_current_data and self.device_data is not None:
+            return self.entity_description.value_fn(self.device_data)
+
+        if self.entity_description.device_class == SensorDeviceClass.TIMESTAMP:
+            restored_datetime = self.get_restored_datetime()
+            if restored_datetime is not None:
+                return restored_datetime
+
+        restored_number = self.get_restored_number()
+        if restored_number is not None:
+            return restored_number
+        return self.restored_state_value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return entity-specific attributes."""
 
-        if self.device_data is None or self.entity_description.attrs_fn is None:
-            return None
-        return self.entity_description.attrs_fn(self.device_data)
+        if self.has_current_data and self.device_data is not None and self.entity_description.attrs_fn is not None:
+            return self.entity_description.attrs_fn(self.device_data)
+        return self.restored_attributes
+
+
+def _datetime_from_milliseconds(value: Any) -> datetime:
+    """Return a timezone-aware datetime from a millisecond Unix timestamp."""
+
+    return datetime.fromtimestamp(float(value) / 1000, tz=UTC)

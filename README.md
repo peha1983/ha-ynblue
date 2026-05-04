@@ -6,7 +6,7 @@
 
 `ynblue` is a Home Assistant custom integration for YNEOM/YnBlue pool controllers.
 
-It signs in to the YnBlue cloud, refreshes the JWT automatically, connects to the official YnBlue MQTT WebSocket and exposes live entities in Home Assistant.
+It signs in to the YnBlue cloud, refreshes the JWT automatically, polls controller metadata, and uses short-lived MQTT snapshot sessions to expose live entities in Home Assistant.
 
 ## Features
 
@@ -16,6 +16,13 @@ It signs in to the YnBlue cloud, refreshes the JWT automatically, connects to th
 - Filter, heater, treatment and pH modes
 - Light, RGB light, robot and swim jet controls when wired on the controller
 - Snapshot, force measurement, pH injection and maintenance/reset buttons
+
+## Runtime behavior
+
+- Metadata refresh runs every 30 seconds.
+- Full controller snapshots run every 90 seconds while the controller is online.
+- A controller coming back online triggers an immediate snapshot refresh.
+- Safe commands are confirmed with a follow-up snapshot before Home Assistant reports success.
 
 ## Installation
 
@@ -40,5 +47,5 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 ## Notes
 
 - The YnBlue device itself does not expose a local LAN API in the tested setup.
-- Live state and control are provided through the official YnBlue cloud MQTT endpoint.
+- State and control are provided through the official YnBlue cloud API and MQTT endpoints.
 - This integration is designed for Home Assistant `2025.12.x` and newer.

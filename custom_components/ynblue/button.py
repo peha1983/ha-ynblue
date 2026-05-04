@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .entity import YnBlueEntity
-from .helpers import feature_enabled, is_port_enabled
+from .helpers import feature_enabled, is_port_enabled, should_create_entity
 from .models import YnBlueRuntimeData
 
 ExistsFn = Callable[[dict], bool]
@@ -107,10 +108,20 @@ async def async_setup_entry(
     """Set up YnBlue buttons."""
 
     runtime: YnBlueRuntimeData = entry.runtime_data
+    registry = er.async_get(_hass)
+    registered_unique_ids = {
+        registry_entry.unique_id for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
     entities: list[YnBlueButton] = []
     for device_id, device in runtime.coordinator.data.items():
         for description in BUTTON_DESCRIPTIONS:
-            if description.exists_fn(device):
+            if should_create_entity(
+                device,
+                device_id=device_id,
+                key=description.key,
+                exists_fn=description.exists_fn,
+                registered_unique_ids=registered_unique_ids,
+            ):
                 entities.append(YnBlueButton(runtime, device_id, description))
     async_add_entities(entities)
 
