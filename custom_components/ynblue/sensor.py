@@ -14,12 +14,18 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT, UnitOfTemperature, UnitOfVolume
+from homeassistant.const import (
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfTemperature,
+    UnitOfTime,
+    UnitOfVolume,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import SNAPSHOT_STALE_INTERVAL
 from .entity import YnBlueEntity
 from .helpers import should_create_entity
 from .models import YnBlueRuntimeData
@@ -38,6 +44,7 @@ class YnBlueSensorEntityDescription(SensorEntityDescription):
     exists_fn: ExistsFn = lambda _device: True
     attrs_fn: AttrsFn | None = None
     unit_fn: UnitFn | None = None
+    requires_fresh_snapshot: bool = False
 
 
 SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
@@ -49,6 +56,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["temperature"]["measured"],
         exists_fn=lambda device: "temperature" in device,
+        requires_fresh_snapshot=True,
         attrs_fn=lambda device: {
             "sensor_status": device["temperature"].get("status"),
             "measured_epoch": device["temperature"].get("measuredEpoch"),
@@ -62,6 +70,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["pH"]["measured"],
         exists_fn=lambda device: "pH" in device,
+        requires_fresh_snapshot=True,
         attrs_fn=lambda device: {
             "target": device["pH"].get("target"),
             "sensor_status": device["pH"].get("sensorStatus"),
@@ -75,6 +84,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["chemical"]["measured"],
         exists_fn=lambda device: "chemical" in device and device["chemical"].get("sensorType", 0) != 0,
+        requires_fresh_snapshot=True,
         unit_fn=lambda device: "mV" if device["chemical"].get("sensorType") == 1 else "ppm",
         attrs_fn=lambda device: {
             "target": device["chemical"].get("target"),
@@ -90,6 +100,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["chemical"]["estimated"],
         exists_fn=lambda device: "chemical" in device and device["chemical"].get("sensorType", 0) != 0,
+        requires_fresh_snapshot=True,
         unit_fn=lambda device: "mV" if device["chemical"].get("sensorType") == 1 else "ppm",
     ),
     YnBlueSensorEntityDescription(
@@ -99,6 +110,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["pH"]["liquidLevel"],
         exists_fn=lambda device: "pH" in device,
+        requires_fresh_snapshot=True,
         attrs_fn=lambda device: {
             "max_level": device["pH"].get("liquidLevelMax"),
             "alert_level": device["pH"].get("liquidLevelAlert"),
@@ -113,6 +125,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["chemical"]["liquidLevel"],
         exists_fn=lambda device: "chemical" in device,
+        requires_fresh_snapshot=True,
         attrs_fn=lambda device: {
             "max_level": device["chemical"].get("liquidLevelMax"),
             "alert_level": device["chemical"].get("liquidLevelAlert"),
@@ -128,6 +141,7 @@ SENSOR_DESCRIPTIONS: tuple[YnBlueSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["wifi"]["rssi"],
         exists_fn=lambda device: "wifi" in device,
+        requires_fresh_snapshot=True,
         attrs_fn=lambda device: {"ssid": device["wifi"].get("ssid")},
     ),
     YnBlueSensorEntityDescription(
@@ -165,6 +179,7 @@ async def async_setup_entry(
             ):
                 entities.append(YnBlueSensor(runtime, device_id, description))
     async_add_entities(entities)
+    async_add_entities([YnBlueLiveDataAgeSensor(runtime, device_id) for device_id in runtime.coordinator.data])
 
 
 class YnBlueSensor(YnBlueEntity, SensorEntity):
@@ -182,6 +197,12 @@ class YnBlueSensor(YnBlueEntity, SensorEntity):
 
         self.entity_description = description
         super().__init__(runtime_data, device_id, description.key, description.exists_fn)
+
+    @property
+    def requires_fresh_snapshot(self) -> bool:
+        """Return whether the sensor depends on fresh live snapshot data."""
+
+        return self.entity_description.requires_fresh_snapshot
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -224,3 +245,40 @@ def _datetime_from_milliseconds(value: Any) -> datetime:
     """Return a timezone-aware datetime from a millisecond Unix timestamp."""
 
     return datetime.fromtimestamp(float(value) / 1000, tz=UTC)
+
+
+class YnBlueLiveDataAgeSensor(YnBlueEntity, SensorEntity):
+    """Diagnostic sensor for live data freshness."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_translation_key = "live_data_age_minutes"
+
+    def __init__(self, runtime_data: YnBlueRuntimeData, device_id: str) -> None:
+        """Initialize the diagnostic sensor."""
+
+        super().__init__(runtime_data, device_id, "live_data_age_minutes")
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the age of the latest successful live snapshot in minutes."""
+
+        age_fn = getattr(self.runtime_data.hub, "get_snapshot_age_minutes", None)
+        if callable(age_fn):
+            age = age_fn(self.device_id)
+            if age is not None:
+                return round(age, 1)
+        return self.get_restored_number()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return freshness attributes for diagnostics."""
+
+        fresh_fn = getattr(self.runtime_data.hub, "device_data_is_fresh", None)
+        is_fresh = bool(fresh_fn(self.device_id)) if callable(fresh_fn) else None
+        return {
+            "fresh": is_fresh,
+            "stale_after_minutes": round(SNAPSHOT_STALE_INTERVAL.total_seconds() / 60),
+        }

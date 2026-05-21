@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -46,6 +47,7 @@ async def test_pool_volume_command_payload(hass, config_entry, device_payload):
     coordinator = YnBlueCoordinator(hass, config_entry, api)
     coordinator.async_set_updated_data({device_payload["id"]: device_payload})
     hub = YnBlueHub(hass, config_entry, coordinator, api)
+    hub._last_snapshot_success[device_payload["id"]] = time.monotonic()
 
     with (
         patch.object(hub, "async_publish", AsyncMock()) as async_publish,
@@ -96,6 +98,33 @@ async def test_request_snapshot_merges_fetched_snapshot(hass, config_entry, devi
     assert device["isConnected"] is True
 
 
+async def test_start_registers_periodic_refresh_listener(hass, config_entry, device_payload):
+    """Test that polling is scheduled through Home Assistant's interval helper."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with patch.object(
+        hub,
+        "async_refresh_now",
+        AsyncMock(),
+    ), patch(
+        "custom_components.ynblue.hub.async_track_time_interval",
+        return_value=lambda: None,
+    ) as async_track_time_interval:
+        await hub.async_start()
+
+    async_track_time_interval.assert_called_once()
+    assert async_track_time_interval.call_args.args[1] == hub._async_handle_periodic_refresh
+    assert hub.available is True
+
+
 async def test_startup_keeps_entities_available_when_device_is_offline(hass, config_entry, device_payload):
     """Test that startup succeeds without snapshot traffic when the controller is offline."""
 
@@ -116,7 +145,10 @@ async def test_startup_keeps_entities_available_when_device_is_offline(hass, con
     )
     hub = YnBlueHub(hass, config_entry, coordinator, api)
 
-    with patch.object(hub, "async_request_snapshot", AsyncMock()) as async_request_snapshot:
+    with patch.object(hub, "async_request_snapshot", AsyncMock()) as async_request_snapshot, patch(
+        "custom_components.ynblue.hub.async_track_time_interval",
+        return_value=lambda: None,
+    ):
         await hub.async_start()
         await hub.async_stop()
 
@@ -176,6 +208,7 @@ async def test_ph_mode_command_uses_regulation_toggle_payload(hass, config_entry
     coordinator = YnBlueCoordinator(hass, config_entry, api)
     coordinator.async_set_updated_data({device_payload["id"]: device_payload})
     hub = YnBlueHub(hass, config_entry, coordinator, api)
+    hub._last_snapshot_success[device_payload["id"]] = time.monotonic()
 
     with (
         patch.object(hub, "async_publish", AsyncMock()) as async_publish,
@@ -214,3 +247,42 @@ async def test_startup_logs_snapshot_failures_but_stays_running(hass, config_ent
 
     assert hub.available is True
     async_request_snapshot.assert_awaited_once_with(device_payload["id"])
+
+
+async def test_snapshot_failures_use_backoff(hass, config_entry, device_payload):
+    """Test that repeated snapshot failures back off instead of hammering the broker."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with patch.object(
+        hub,
+        "async_request_snapshot",
+        AsyncMock(side_effect=YnBlueMqttError("timed out")),
+    ) as async_request_snapshot:
+        await hub.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="periodic")
+        await hub.async_refresh_now(refresh_metadata=False, reason="periodic")
+
+    async_request_snapshot.assert_awaited_once_with(device_payload["id"])
+
+
+async def test_stale_snapshot_rejects_commands(hass, config_entry, device_payload):
+    """Test that commands fail closed when no fresh live snapshot is available."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with pytest.raises(YnBlueCommandError):
+        await hub.async_set_pool_volume(device_payload["id"], 42)

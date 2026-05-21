@@ -71,12 +71,28 @@ class YnBlueEntity(CoordinatorEntity[YnBlueCoordinator], RestoreEntity):
         return self.runtime_data.coordinator.get_device(self.device_id)
 
     @property
+    def requires_fresh_snapshot(self) -> bool:
+        """Return whether the entity depends on recent live snapshot data."""
+
+        return False
+
+    def _device_data_is_fresh(self) -> bool:
+        """Return whether the runtime considers the device data fresh."""
+
+        freshness_fn = getattr(self.runtime_data.hub, "device_data_is_fresh", None)
+        if not callable(freshness_fn):
+            return True
+        return bool(freshness_fn(self.device_id))
+
+    @property
     def available(self) -> bool:
         """Return whether the entity is available."""
 
         device = self.device_data
         if device is None:
             return self.has_restored_state
+        if self.requires_fresh_snapshot and self._exists_fn(device):
+            return self._device_data_is_fresh()
         return self._exists_fn(device) or self.has_restored_state
 
     @property
@@ -84,7 +100,11 @@ class YnBlueEntity(CoordinatorEntity[YnBlueCoordinator], RestoreEntity):
         """Return whether the current device payload satisfies the entity shape."""
 
         device = self.device_data
-        return device is not None and self._exists_fn(device)
+        return (
+            device is not None
+            and self._exists_fn(device)
+            and (not self.requires_fresh_snapshot or self._device_data_is_fresh())
+        )
 
     @property
     def has_restored_state(self) -> bool:

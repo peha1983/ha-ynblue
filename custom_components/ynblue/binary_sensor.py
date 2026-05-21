@@ -32,6 +32,7 @@ class YnBlueBinarySensorDescription(BinarySensorEntityDescription):
     value_fn: ValueFn
     exists_fn: ExistsFn = lambda _device: True
     attrs_fn: AttrsFn | None = None
+    requires_fresh_snapshot: bool = False
 
 
 BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
@@ -46,6 +47,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="filter_running",
         device_class=BinarySensorDeviceClass.RUNNING,
         exists_fn=lambda device: "filter" in device,
+        requires_fresh_snapshot=True,
         value_fn=lambda device: bool(device["filter"].get("state")),
         attrs_fn=lambda device: {"mode": device["filter"].get("mode")},
     ),
@@ -54,6 +56,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="heater_running",
         device_class=BinarySensorDeviceClass.HEAT,
         exists_fn=lambda device: "heater" in device,
+        requires_fresh_snapshot=True,
         value_fn=lambda device: bool(device["heater"].get("state")),
         attrs_fn=lambda device: {"mode": device["heater"].get("mode")},
     ),
@@ -62,6 +65,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="electrolyser_running",
         device_class=BinarySensorDeviceClass.RUNNING,
         exists_fn=lambda device: "electrolyser" in device,
+        requires_fresh_snapshot=True,
         value_fn=lambda device: bool(device["electrolyser"].get("state")),
         attrs_fn=lambda device: {"mode": device["electrolyser"].get("mode")},
     ),
@@ -70,6 +74,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="ph_sensor_problem",
         device_class=BinarySensorDeviceClass.PROBLEM,
         exists_fn=lambda device: "pH" in device,
+        requires_fresh_snapshot=True,
         value_fn=lambda device: not bool(device["pH"].get("sensorStatus")),
     ),
     YnBlueBinarySensorDescription(
@@ -77,6 +82,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="chemical_sensor_problem",
         device_class=BinarySensorDeviceClass.PROBLEM,
         exists_fn=lambda device: "chemical" in device and device["chemical"].get("sensorType", 0) != 0,
+        requires_fresh_snapshot=True,
         value_fn=lambda device: not bool(device["chemical"].get("sensorStatus")),
     ),
     YnBlueBinarySensorDescription(
@@ -84,6 +90,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="meteo_available",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         exists_fn=lambda device: feature_enabled(device, "meteo") and "meteo" in device,
+        requires_fresh_snapshot=True,
         value_fn=lambda device: bool(device["meteo"].get("status")),
     ),
     YnBlueBinarySensorDescription(
@@ -91,6 +98,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[YnBlueBinarySensorDescription, ...] = (
         translation_key="force_measurement_active",
         device_class=BinarySensorDeviceClass.RUNNING,
         exists_fn=lambda device: "system" in device and "forceMeasurement" in device["system"],
+        requires_fresh_snapshot=True,
         value_fn=lambda device: bool(device["system"].get("forceMeasurement")),
     ),
 )
@@ -139,8 +147,19 @@ class YnBlueBinarySensor(YnBlueEntity, BinarySensorEntity):
         super().__init__(runtime_data, device_id, description.key, description.exists_fn)
 
     @property
+    def requires_fresh_snapshot(self) -> bool:
+        """Return whether the binary sensor depends on fresh live snapshot data."""
+
+        return self.entity_description.requires_fresh_snapshot
+
+    @property
     def is_on(self) -> bool | None:
         """Return the current state."""
+
+        if self.entity_description.key == "online":
+            online_fn = getattr(self.runtime_data.hub, "is_device_online", None)
+            if callable(online_fn):
+                return bool(online_fn(self.device_id))
 
         if self.has_current_data and self.device_data is not None:
             return self.entity_description.value_fn(self.device_data)

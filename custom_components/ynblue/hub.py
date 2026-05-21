@@ -11,14 +11,13 @@ import ssl
 import threading
 import time
 import uuid
-from collections.abc import Mapping
-from contextlib import suppress
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import paho.mqtt.client as mqtt
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from .client import YnBlueApiClient
 from .const import (
@@ -41,6 +40,9 @@ from .const import (
     RESTART_RECOVERY_DELAY,
     SNAPSHOT_REFRESH_INTERVAL,
     SNAPSHOT_RESPONSE_TIMEOUT,
+    SNAPSHOT_RETRY_BACKOFF_INITIAL,
+    SNAPSHOT_RETRY_BACKOFF_MAX,
+    SNAPSHOT_STALE_INTERVAL,
 )
 from .coordinator import YnBlueCoordinator
 from .exceptions import (
@@ -74,12 +76,14 @@ class YnBlueHub:
         self._start_lock = asyncio.Lock()
         self._refresh_lock = asyncio.Lock()
         self._device_locks: dict[str, asyncio.Lock] = {}
-        self._polling_task: asyncio.Task[None] | None = None
-        self._remove_stop_listener: Any | None = None
+        self._cancel_periodic_refresh: Any | None = None
+        self._cancel_delayed_refreshes: list[Callable[[], None]] = []
         self._stopped = False
         self._started = False
         self._last_snapshot_success: dict[str, float] = {}
+        self._last_snapshot_attempt: dict[str, float] = {}
         self._last_known_connectivity: dict[str, bool] = {}
+        self._snapshot_failures: dict[str, int] = {}
 
     @property
     def available(self) -> bool:
@@ -97,11 +101,11 @@ class YnBlueHub:
             self._stopped = False
             await self.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="startup")
             self._runtime_ready.set()
-            self._remove_stop_listener = self.hass.bus.async_listen_once(
-                EVENT_HOMEASSISTANT_STOP,
-                self._async_handle_hass_stop,
+            self._cancel_periodic_refresh = async_track_time_interval(
+                self.hass,
+                self._async_handle_periodic_refresh,
+                METADATA_REFRESH_INTERVAL,
             )
-            self._polling_task = self.hass.async_create_task(self._async_polling_loop())
             self._started = True
 
     async def async_stop(self) -> None:
@@ -110,15 +114,13 @@ class YnBlueHub:
         self._stopped = True
         self._runtime_ready.clear()
 
-        if self._remove_stop_listener is not None:
-            self._remove_stop_listener()
-            self._remove_stop_listener = None
+        if self._cancel_periodic_refresh is not None:
+            self._cancel_periodic_refresh()
+            self._cancel_periodic_refresh = None
 
-        if self._polling_task is not None:
-            self._polling_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._polling_task
-            self._polling_task = None
+        for cancel_refresh in self._cancel_delayed_refreshes:
+            cancel_refresh()
+        self._cancel_delayed_refreshes.clear()
 
         self._started = False
 
@@ -126,6 +128,30 @@ class YnBlueHub:
         """Refresh metadata and force a fresh snapshot cycle."""
 
         await self.async_refresh_now(force_snapshot=True, reason="manual_reconnect")
+
+    def device_data_is_fresh(self, device_id: str) -> bool:
+        """Return whether the latest live snapshot is still considered fresh."""
+
+        last_success = self._last_snapshot_success.get(device_id)
+        if last_success is None:
+            return False
+        return time.monotonic() - last_success <= SNAPSHOT_STALE_INTERVAL.total_seconds()
+
+    def is_device_online(self, device_id: str) -> bool:
+        """Return whether the controller is online and yielding fresh live data."""
+
+        device = self.coordinator.get_device(device_id)
+        if device is None or not bool(device.get("isConnected")):
+            return False
+        return self.device_data_is_fresh(device_id)
+
+    def get_snapshot_age_minutes(self, device_id: str) -> float | None:
+        """Return the age of the latest successful live snapshot in minutes."""
+
+        last_success = self._last_snapshot_success.get(device_id)
+        if last_success is None:
+            return None
+        return (time.monotonic() - last_success) / 60
 
     async def async_refresh_now(
         self,
@@ -175,8 +201,15 @@ class YnBlueHub:
                 deep_merge_dict(existing, {"isConnected": False}),
             )
 
-        self.hass.async_create_task(
-            self._async_refresh_after_delay(RESTART_RECOVERY_DELAY, reason=f"restart_recovery:{device_id}")
+        self._cancel_delayed_refreshes.append(
+            async_call_later(
+                self.hass,
+                RESTART_RECOVERY_DELAY,
+                lambda _now: self.hass.async_create_background_task(
+                    self._async_run_delayed_refresh(f"restart_recovery:{device_id}"),
+                    f"ynblue_restart_recovery_{device_id}",
+                ),
+            )
         )
 
     async def async_force_measurement(self, device_id: str) -> None:
@@ -446,22 +479,18 @@ class YnBlueHub:
         self._last_known_connectivity[device_id] = True
         self._last_snapshot_success[device_id] = time.monotonic()
 
-    async def _async_polling_loop(self) -> None:
-        """Continuously refresh metadata and due snapshots."""
+    async def _async_handle_periodic_refresh(self, _now: Any) -> None:
+        """Refresh metadata and due snapshots on the Home Assistant scheduler."""
 
-        while not self._stopped:
-            try:
-                await asyncio.sleep(METADATA_REFRESH_INTERVAL.total_seconds())
-                if self._stopped:
-                    return
-                await self.async_refresh_now(reason="periodic")
-            except asyncio.CancelledError:
-                raise
-            except YnBlueAuthError:
-                await self._async_start_reauth()
-                return
-            except Exception:
-                _LOGGER.exception("Unexpected error while refreshing YnBlue state")
+        if self._stopped:
+            return
+
+        try:
+            await self.async_refresh_now(reason="periodic")
+        except YnBlueAuthError:
+            await self._async_start_reauth()
+        except Exception:
+            _LOGGER.exception("Unexpected error while refreshing YnBlue state")
 
     async def _async_refresh_due_snapshots(self, *, force_snapshot: bool, reason: str) -> None:
         """Refresh any online devices whose snapshots are due."""
@@ -489,6 +518,8 @@ class YnBlueHub:
             try:
                 await self.async_request_snapshot(device_id)
             except YnBlueMqttError as err:
+                self._last_snapshot_attempt[device_id] = time.monotonic()
+                self._snapshot_failures[device_id] = self._snapshot_failures.get(device_id, 0) + 1
                 _LOGGER.warning(
                     "Could not fetch the YnBlue %s snapshot for %s: %s",
                     reason,
@@ -500,6 +531,7 @@ class YnBlueHub:
         """Fetch and merge a full snapshot while holding the device lock."""
 
         self._require_known_device(device_id)
+        self._last_snapshot_attempt[device_id] = time.monotonic()
         token = await self.api.async_ensure_auth()
         snapshot = await self.hass.async_add_executor_job(_fetch_snapshot_payload, device_id, token)
         snapshot["isConnected"] = True
@@ -508,6 +540,7 @@ class YnBlueHub:
         self.coordinator.async_update_device(device_id, merged)
         self._last_snapshot_success[device_id] = time.monotonic()
         self._last_known_connectivity[device_id] = True
+        self._snapshot_failures.pop(device_id, None)
         return snapshot
 
     async def _async_execute_command(
@@ -539,10 +572,9 @@ class YnBlueHub:
                 )
             return snapshot
 
-    async def _async_refresh_after_delay(self, delay: float, *, reason: str) -> None:
-        """Run a forced refresh after a grace delay."""
+    async def _async_run_delayed_refresh(self, reason: str) -> None:
+        """Run a forced refresh after a scheduled grace delay."""
 
-        await asyncio.sleep(delay)
         if self._stopped:
             return
 
@@ -565,16 +597,17 @@ class YnBlueHub:
             data=self.config_entry.data,
         )
 
-    async def _async_handle_hass_stop(self, _event: Any) -> None:
-        """Stop the background runtime when Home Assistant shuts down."""
-
-        await self.async_stop()
-
     def _prune_removed_devices(self) -> None:
         """Drop cached runtime state for devices that no longer exist."""
 
         current_ids = set(self.coordinator.data)
-        for cache in (self._device_locks, self._last_snapshot_success, self._last_known_connectivity):
+        for cache in (
+            self._device_locks,
+            self._last_snapshot_success,
+            self._last_snapshot_attempt,
+            self._last_known_connectivity,
+            self._snapshot_failures,
+        ):
             for device_id in tuple(cache):
                 if device_id not in current_ids:
                     cache.pop(device_id, None)
@@ -582,10 +615,22 @@ class YnBlueHub:
     def _snapshot_due(self, device_id: str, now: float) -> bool:
         """Return whether the next periodic snapshot is due."""
 
+        failures = self._snapshot_failures.get(device_id, 0)
+        last_attempt = self._last_snapshot_attempt.get(device_id)
         last_success = self._last_snapshot_success.get(device_id)
+        if failures > 0 and last_attempt is not None:
+            return now - last_attempt >= self._snapshot_retry_delay(failures)
         if last_success is None:
             return True
         return now - last_success >= SNAPSHOT_REFRESH_INTERVAL.total_seconds()
+
+    @staticmethod
+    def _snapshot_retry_delay(failures: int) -> float:
+        """Return the next retry delay in seconds for repeated snapshot failures."""
+
+        exponent = max(0, failures - 1)
+        delay = SNAPSHOT_RETRY_BACKOFF_INITIAL.total_seconds() * (2**exponent)
+        return min(delay, SNAPSHOT_RETRY_BACKOFF_MAX.total_seconds())
 
     def _async_device_lock(self, device_id: str) -> asyncio.Lock:
         """Return the per-device operation lock."""
@@ -607,6 +652,11 @@ class YnBlueHub:
         if not bool(device.get("isConnected")):
             raise YnBlueCommandError(
                 "The YnBlue controller is currently offline, so this command cannot be confirmed safely"
+            )
+        if not self.device_data_is_fresh(device_id):
+            raise YnBlueCommandError(
+                "The YnBlue controller has not provided a fresh live snapshot recently, so this command "
+                "cannot be confirmed safely"
             )
         return device
 

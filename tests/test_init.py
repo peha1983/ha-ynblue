@@ -10,11 +10,22 @@ from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.ynblue import binary_sensor, button, light, number, select, sensor, switch
+from custom_components.ynblue.binary_sensor import BINARY_SENSOR_DESCRIPTIONS, YnBlueBinarySensor
 from custom_components.ynblue.client import YnBlueApiClient
 from custom_components.ynblue.coordinator import YnBlueCoordinator
 from custom_components.ynblue.entity import _get_last_good_recorder_state
 from custom_components.ynblue.models import YnBlueRuntimeData
 from custom_components.ynblue.sensor import SENSOR_DESCRIPTIONS, YnBlueSensor
+
+
+class HubStub(SimpleNamespace):
+    """Runtime hub stub for entity tests."""
+
+    def device_data_is_fresh(self, _device_id: str) -> bool:
+        return getattr(self, "fresh", True)
+
+    def is_device_online(self, _device_id: str) -> bool:
+        return getattr(self, "online", True)
 
 
 async def test_platform_setup_creates_core_entities(hass, config_entry, device_payload):
@@ -31,7 +42,7 @@ async def test_platform_setup_creates_core_entities(hass, config_entry, device_p
     runtime = YnBlueRuntimeData(
         api=api,
         coordinator=coordinator,
-        hub=SimpleNamespace(available=True),
+        hub=HubStub(available=True, fresh=True, online=True),
     )
     config_entry.runtime_data = runtime
 
@@ -46,6 +57,7 @@ async def test_platform_setup_creates_core_entities(hass, config_entry, device_p
 
     assert f"{device_payload['id']}_temperature" in unique_ids
     assert f"{device_payload['id']}_last_cloud_contact" in unique_ids
+    assert f"{device_payload['id']}_live_data_age_minutes" in unique_ids
     assert f"{device_payload['id']}_pool_volume" in unique_ids
     assert f"{device_payload['id']}_filter_mode" in unique_ids
     assert f"{device_payload['id']}_request_snapshot" in unique_ids
@@ -70,7 +82,7 @@ async def test_port_entities_are_created_before_snapshot_sections_arrive(hass, c
     runtime = YnBlueRuntimeData(
         api=api,
         coordinator=coordinator,
-        hub=SimpleNamespace(available=True),
+        hub=HubStub(available=True, fresh=True, online=True),
     )
     config_entry.runtime_data = runtime
 
@@ -124,7 +136,7 @@ async def test_registered_entities_are_recreated_when_only_metadata_is_available
     runtime = YnBlueRuntimeData(
         api=api,
         coordinator=coordinator,
-        hub=SimpleNamespace(available=True),
+        hub=HubStub(available=True, fresh=False, online=False),
     )
     config_entry.runtime_data = runtime
 
@@ -161,7 +173,7 @@ async def test_sensor_uses_restored_state_when_live_section_is_missing(hass, con
     runtime = YnBlueRuntimeData(
         api=api,
         coordinator=coordinator,
-        hub=SimpleNamespace(available=True),
+        hub=HubStub(available=True, fresh=False, online=False),
     )
 
     entity = YnBlueSensor(runtime, device_payload["id"], SENSOR_DESCRIPTIONS[0])
@@ -193,7 +205,7 @@ async def test_dynamic_sensor_unit_is_restored_when_live_data_is_missing(hass, c
     runtime = YnBlueRuntimeData(
         api=api,
         coordinator=coordinator,
-        hub=SimpleNamespace(available=True),
+        hub=HubStub(available=True, fresh=False, online=False),
     )
 
     entity = YnBlueSensor(runtime, device_payload["id"], SENSOR_DESCRIPTIONS[2])
@@ -224,7 +236,7 @@ async def test_timestamp_sensor_uses_restored_datetime_when_live_data_is_missing
     runtime = YnBlueRuntimeData(
         api=api,
         coordinator=coordinator,
-        hub=SimpleNamespace(available=True),
+        hub=HubStub(available=True, fresh=False, online=False),
     )
 
     entity = YnBlueSensor(runtime, device_payload["id"], SENSOR_DESCRIPTIONS[-1])
@@ -232,6 +244,50 @@ async def test_timestamp_sensor_uses_restored_datetime_when_live_data_is_missing
 
     assert entity.native_value is not None
     assert entity.native_value.isoformat() == "2026-05-02T14:52:27+02:00"
+
+
+async def test_live_sensor_becomes_unavailable_when_snapshot_is_stale(hass, config_entry, device_payload):
+    """Test that live measurement sensors stop exposing stale values."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    runtime = YnBlueRuntimeData(
+        api=api,
+        coordinator=coordinator,
+        hub=HubStub(available=True, fresh=False, online=False),
+    )
+
+    entity = YnBlueSensor(runtime, device_payload["id"], SENSOR_DESCRIPTIONS[0])
+
+    assert entity.available is False
+    assert entity.has_current_data is False
+
+
+async def test_online_binary_sensor_uses_snapshot_freshness(hass, config_entry, device_payload):
+    """Test that online state follows fresh snapshots, not stale metadata."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    runtime = YnBlueRuntimeData(
+        api=api,
+        coordinator=coordinator,
+        hub=HubStub(available=True, fresh=False, online=False),
+    )
+
+    entity = YnBlueBinarySensor(runtime, device_payload["id"], BINARY_SENSOR_DESCRIPTIONS[0])
+
+    assert entity.available is True
+    assert entity.is_on is False
 
 
 async def test_recorder_fallback_skips_unavailable_states(hass):

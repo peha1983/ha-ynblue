@@ -22,6 +22,9 @@ INITIAL_SNAPSHOT_DELAY: Final = 1.0
 SNAPSHOT_RESPONSE_TIMEOUT: Final = 10
 METADATA_REFRESH_INTERVAL: Final = timedelta(seconds=30)
 SNAPSHOT_REFRESH_INTERVAL: Final = timedelta(seconds=90)
+SNAPSHOT_STALE_INTERVAL: Final = timedelta(minutes=20)
+SNAPSHOT_RETRY_BACKOFF_INITIAL: Final = timedelta(minutes=5)
+SNAPSHOT_RETRY_BACKOFF_MAX: Final = timedelta(hours=1)
 COMMAND_SETTLE_DELAY: Final = 2.0
 FORCE_MEASUREMENT_TOGGLE_DELAY: Final = 1.0
 FORCE_MEASUREMENT_SETTLE_DELAY: Final = 5.0
@@ -83,6 +86,7 @@ ENTITY_OBJECT_ID_BY_KEY: Final = {
     "chemical_tank_level": "ynblue_chemical_tank_level",
     "wifi_rssi": "ynblue_wifi_signal",
     "last_cloud_contact": "ynblue_last_cloud_contact",
+    "live_data_age_minutes": "ynblue_live_data_age_minutes",
     "online": "ynblue_online",
     "filter_running": "ynblue_filter_running",
     "heater_running": "ynblue_heater_running",

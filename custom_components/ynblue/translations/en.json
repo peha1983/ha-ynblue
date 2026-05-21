@@ -37,7 +37,8 @@
       "ph_tank_level": { "name": "YnBlue pH tank level" },
       "chemical_tank_level": { "name": "YnBlue chemical tank level" },
       "wifi_rssi": { "name": "YnBlue Wi-Fi signal" },
-      "last_cloud_contact": { "name": "YnBlue last cloud contact" }
+      "last_cloud_contact": { "name": "YnBlue last cloud contact" },
+      "live_data_age_minutes": { "name": "YnBlue live data age" }
     },
     "binary_sensor": {
       "online": { "name": "YnBlue online" },
