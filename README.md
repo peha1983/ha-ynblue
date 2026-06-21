@@ -8,14 +8,36 @@
 
 It signs in to the YnBlue cloud, refreshes the JWT automatically, polls controller metadata, and uses short-lived MQTT snapshot sessions to expose live entities in Home Assistant.
 
-## Features
+## What Is YnBlue?
 
-- Water temperature, pH, ORP/treatment, tank levels and Wi-Fi signal
-- Online state, filter/heater runtime and sensor fault indicators
-- Pool volume, pH target, treatment target and heater target
-- Filter, heater, treatment and pH modes
-- Light, RGB light, robot and swim jet controls when wired on the controller
-- Snapshot, force measurement, pH injection and maintenance/reset buttons
+YnBlue is YNEOM's connected pool control platform for residential pools. According to the official [YNEOM product](https://www.yneom.com/en/connected-pool/), [FAQ](https://www.yneom.com/en/faq/), and [app documentation](https://www.yneom.com/en/ynblue-app/), the upstream system covers automated filtration, automatic pH correction, water treatment management, alerts, and optional control of connected equipment such as heating, lighting, and robotic cleaners.
+
+The native YnBlue ecosystem is managed through the YnBlue mobile app and the `control.yneom-iot.com` web application documented by YNEOM. This integration brings that same controller fleet into Home Assistant with native entities, recovery logic, and automation-friendly state handling.
+
+## What This Integration Adds
+
+- One Home Assistant config entry per YnBlue cloud account, with automatic discovery of all linked controllers
+- Native Home Assistant entities for telemetry, online state, freshness, setpoints, and supported outputs
+- Safe command execution with follow-up snapshot confirmation for supported write actions
+- Recovery behavior that preserves the last known good values while a controller or the cloud is temporarily unavailable
+
+## Supported Capabilities
+
+Entities are created only when the controller reports the relevant hardware capability or port as enabled.
+
+- Water quality and inventory: water temperature, measured pH, measured chemical value, estimated chemical value, pH tank level, chemical tank level, Wi-Fi RSSI, last cloud contact, and live data age
+- Health and activity: online state, filter running, heater running, electrolyser running, sensor fault indicators, weather data availability, and force-measurement state
+- Setpoints and operating modes: pool volume, pH target, chemical target, heater target, filter mode, heater mode, chemical mode, pH mode, and electrolyser protection mode
+- Equipment control: light, secondary light, RGB light, robot, swim jet, fountain, auxiliary relays, and electrolyser temperature protection when exposed by the controller
+- Service actions: snapshot refresh, force measurement, controller restart, RGB program cycle, pH injection, stop pH injection, and consumption reset actions
+
+## Architecture And Limits
+
+- The integration uses the official YnBlue cloud API and MQTT endpoints exposed by the vendor platform
+- In the tested environment, the controller did not expose a local LAN API that Home Assistant could use directly
+- YnBlue cloud credentials are required
+- Live values are refreshed from short-lived MQTT snapshot sessions instead of a long-lived broker connection because this model has proven more reliable with YnBlue devices
+- When the controller is offline, Home Assistant keeps the last confirmed values visible and exposes online/freshness state separately
 
 ## Runtime behavior
 
@@ -28,6 +50,8 @@ It signs in to the YnBlue cloud, refreshes the JWT automatically, polls controll
 ## Installation
 
 ### HACS
+
+Until the repository is merged into the default HACS store, install it as a custom repository:
 
 1. Open HACS.
 2. Add `https://github.com/peha1983/ha-ynblue` as a custom repository with type `Integration`.
@@ -45,8 +69,13 @@ The integration uses your YnBlue cloud email address and password.
 
 One Home Assistant config entry represents one YnBlue cloud account and discovers all controllers on that account automatically.
 
+## Documentation
+
+- [Product specification](docs/product-specification.md)
+- [Technical architecture](docs/technical-architecture.md)
+- [Security hardening](docs/security-hardening.md)
+
 ## Notes
 
-- The YnBlue device itself does not expose a local LAN API in the tested setup.
 - State and control are provided through the official YnBlue cloud API and MQTT endpoints.
 - This integration is designed for Home Assistant `2025.12.x` and newer.

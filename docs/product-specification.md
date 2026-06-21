@@ -9,6 +9,18 @@ Provide a production-ready Home Assistant custom integration for YnBlue pool con
 - confirms or clearly fails user-triggered commands
 - remains maintainable by engineers who are not using AI tooling
 
+## Upstream Product Context
+
+YnBlue is YNEOM's connected pool controller platform. Based on the vendor's public product, FAQ, and app documentation, the upstream system is designed to automate:
+
+- filtration management
+- pH correction
+- water treatment management for supported treatment systems
+- alerts about abnormal operation and empty or low product tanks
+- optional connected equipment such as heating, lighting, and robotic cleaners
+
+The Home Assistant integration should expose only the capabilities that the controller itself reports as enabled. The upstream product line is broader than any single installed controller.
+
 ## Users
 
 - Home Assistant administrators operating a YnBlue-controlled pool
