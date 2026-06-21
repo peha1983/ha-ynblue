@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/peha1983/ha-ynblue/blob/main/docs/troubleshooting.md
+    about: Check common stale-data, offline, and HACS installation problems first.
+  - name: Support guide
+    url: https://github.com/peha1983/ha-ynblue/blob/main/SUPPORT.md
+    about: Read what information to gather before opening a bug report.
+  - name: Release notes
+    url: https://github.com/peha1983/ha-ynblue/releases
+    about: Verify whether the problem is already fixed in a newer tagged release.

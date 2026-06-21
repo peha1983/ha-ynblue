@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a new capability or improvement for the YnBlue integration
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: input
+    id: controller_feature
+    attributes:
+      label: Related YnBlue capability
+      placeholder: Heat pump mode, auxiliary relay, tank alarm, dashboard example
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Explain the desired behavior in Home Assistant terms.
+      placeholder: I want a select entity for ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Practical use case
+      placeholder: This would allow me to automate ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: upstream_evidence
+    attributes:
+      label: Upstream evidence
+      description: If possible, include screenshots, API traces, app behavior, or controller capability details.
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Safety or reliability considerations
+      description: Mention if the request touches dosing, restart behavior, or anything physically impactful.

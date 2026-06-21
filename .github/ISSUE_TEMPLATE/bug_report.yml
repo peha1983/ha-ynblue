@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem with the YnBlue integration
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read the troubleshooting guide before filing a bug:
+        https://github.com/peha1983/ha-ynblue/blob/main/docs/troubleshooting.md
+
+  - type: input
+    id: home_assistant_version
+    attributes:
+      label: Home Assistant version
+      placeholder: 2026.6.0
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: YnBlue integration version
+      placeholder: 0.3.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_source
+    attributes:
+      label: Installation source
+      options:
+        - HACS custom repository
+        - Manual copy into custom_components
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: controller_model
+    attributes:
+      label: Controller model or product name
+      placeholder: YnBlue, Sugar Valley derivative, unknown
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened
+      description: Describe the exact behavior and what you expected instead.
+      placeholder: After the controller reconnects, values remain stale and live_data_age_minutes keeps increasing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Restart the controller
+        2. Wait for Home Assistant to reconnect
+        3. Press Request snapshot
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: health_signals
+    attributes:
+      label: Relevant entity states
+      description: Include online, last_cloud_contact, and live_data_age_minutes if available.
+      placeholder: |
+        binary_sensor.pool_online: on
+        sensor.pool_last_cloud_contact: 2026-06-21T10:35:00+00:00
+        sensor.pool_live_data_age_minutes: 184.0
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove credentials, tokens, account identifiers, and personal data.
+      render: shell
+    validations:
+      required: true

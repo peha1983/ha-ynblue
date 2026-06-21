@@ -3,6 +3,7 @@
 ![Validate](https://github.com/peha1983/ha-ynblue/actions/workflows/validate.yml/badge.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/peha1983/ha-ynblue?display_name=tag&sort=semver)
 ![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)
+[![Open your Home Assistant instance and open the YnBlue repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?category=integration&owner=peha1983&repository=ha-ynblue)
 
 `ynblue` is a Home Assistant custom integration for YNEOM/YnBlue pool controllers.
 
@@ -14,12 +15,32 @@ YnBlue is YNEOM's connected pool control platform for residential pools. Accordi
 
 The native YnBlue ecosystem is managed through the YnBlue mobile app and the `control.yneom-iot.com` web application documented by YNEOM. This integration brings that same controller fleet into Home Assistant with native entities, recovery logic, and automation-friendly state handling.
 
+## Quick Start
+
+1. Open HACS and add `https://github.com/peha1983/ha-ynblue` as a custom repository of type `Integration`.
+2. Install `YnBlue`.
+3. Restart Home Assistant.
+4. Add `YnBlue` from `Settings -> Devices & Services`.
+5. Sign in with the same YnBlue cloud account you use in the YnBlue mobile app.
+
+The integration is already installable through HACS as a custom repository. The default HACS store listing is still waiting in the upstream review queue.
+
 ## What This Integration Adds
 
 - One Home Assistant config entry per YnBlue cloud account, with automatic discovery of all linked controllers
 - Native Home Assistant entities for telemetry, online state, freshness, setpoints, and supported outputs
 - Safe command execution with follow-up snapshot confirmation for supported write actions
 - Recovery behavior that preserves the last known good values while a controller or the cloud is temporarily unavailable
+
+## Data Flow Overview
+
+```text
+YnBlue controller
+  -> YNEOM cloud REST metadata
+  -> YnBlue cloud MQTT snapshots and commands
+  -> Home Assistant YnBlue integration
+  -> Home Assistant entities, automations, dashboards, and alerts
+```
 
 ## Supported Capabilities
 
@@ -71,11 +92,27 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 
 ## Documentation
 
+- [Support](SUPPORT.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
+- [Troubleshooting guide](docs/troubleshooting.md)
+- [Dashboard example](docs/dashboard-setup.md)
 - [Product specification](docs/product-specification.md)
 - [Technical architecture](docs/technical-architecture.md)
 - [Security hardening](docs/security-hardening.md)
+- [Release process](docs/release-process.md)
+- [Core readiness notes](docs/core-readiness.md)
 
-## Notes
+## Support
 
-- State and control are provided through the official YnBlue cloud API and MQTT endpoints.
+- Use the [troubleshooting guide](docs/troubleshooting.md) before opening an issue.
+- Open a GitHub issue for confirmed bugs, unsupported controller behavior, or feature requests.
+- Include the Home Assistant version, YnBlue integration version, controller model or product name, and redacted logs.
+- Do not post passwords, tokens, exact GPS coordinates, or unredacted diagnostics publicly.
+
+## Release And Upgrade Model
+
+- HACS tracks GitHub releases from this repository.
+- Stable upgrades should be taken from tagged releases rather than arbitrary commits on `main`.
+- Read the [changelog](CHANGELOG.md) and the linked GitHub release notes before upgrading.
 - This integration is designed for Home Assistant `2025.12.x` and newer.
