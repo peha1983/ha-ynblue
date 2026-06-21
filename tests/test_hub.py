@@ -9,8 +9,8 @@ import pytest
 
 from custom_components.ynblue.client import YnBlueApiClient
 from custom_components.ynblue.coordinator import YnBlueCoordinator
-from custom_components.ynblue.exceptions import YnBlueCommandError, YnBlueMqttError
-from custom_components.ynblue.hub import YnBlueHub
+from custom_components.ynblue.exceptions import YnBlueApiError, YnBlueCommandError, YnBlueMqttError
+from custom_components.ynblue.hub import YnBlueHub, _fetch_snapshot_payload
 
 
 async def test_hub_process_message_updates_state(hass, config_entry, device_payload):
@@ -270,6 +270,42 @@ async def test_snapshot_failures_use_backoff(hass, config_entry, device_payload)
         await hub.async_refresh_now(refresh_metadata=False, reason="periodic")
 
     async_request_snapshot.assert_awaited_once_with(device_payload["id"])
+
+
+async def test_refresh_uses_cached_metadata_when_api_times_out(hass, config_entry, device_payload, caplog):
+    """Test that metadata timeouts do not stop snapshot refreshes once devices are known."""
+
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({device_payload["id"]: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with (
+        patch.object(
+            coordinator,
+            "async_refresh_metadata",
+            AsyncMock(side_effect=YnBlueApiError("YnBlue request timed out for /ynblue/test")),
+        ),
+        patch.object(hub, "async_request_snapshot", AsyncMock()) as async_request_snapshot,
+    ):
+        await hub.async_refresh_now(force_snapshot=True, reason="periodic")
+
+    assert "using cached device data" in caplog.text
+    async_request_snapshot.assert_awaited_once_with(device_payload["id"])
+
+
+def test_snapshot_helper_wraps_connect_timeout():
+    """Test that low-level MQTT connect timeouts become YnBlueMqttError."""
+
+    with patch("custom_components.ynblue.hub.mqtt.Client") as mqtt_client:
+        mqtt_client.return_value.connect.side_effect = TimeoutError("timed out")
+
+        with pytest.raises(YnBlueMqttError, match="Could not connect for a YnBlue snapshot"):
+            _fetch_snapshot_payload("device-id", "Bearer token")
 
 
 async def test_stale_snapshot_rejects_commands(hass, config_entry, device_payload):

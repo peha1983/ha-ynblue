@@ -10,7 +10,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from aiohttp import ClientResponseError, ClientSession
+from aiohttp import ClientError, ClientResponseError, ClientSession
 
 from .const import API_BASE_URL, AUTH_REFRESH_MARGIN, DEFAULT_LANGUAGE
 from .exceptions import YnBlueApiError, YnBlueAuthError
@@ -194,10 +194,14 @@ class YnBlueApiClient:
                     data = json.loads(text)
                 except json.JSONDecodeError as err:
                     raise YnBlueApiError(f"Invalid JSON from YnBlue for {path}") from err
+        except TimeoutError as err:
+            raise YnBlueApiError(f"YnBlue request timed out for {path}") from err
         except ClientResponseError as err:
             if err.status in (401, 403):
                 raise YnBlueAuthError("YnBlue authentication failed") from err
             raise YnBlueApiError(f"YnBlue request failed for {path}") from err
+        except ClientError as err:
+            raise YnBlueApiError(f"YnBlue request failed for {path}: {err}") from err
 
         if not isinstance(data, dict):
             raise YnBlueApiError(f"Unexpected JSON payload for {path}: expected an object")

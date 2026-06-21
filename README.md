@@ -23,6 +23,7 @@ It signs in to the YnBlue cloud, refreshes the JWT automatically, polls controll
 - Full controller snapshots run every 90 seconds while the controller is online.
 - A controller coming back online triggers an immediate snapshot refresh.
 - Safe commands are confirmed with a follow-up snapshot before Home Assistant reports success.
+- REST and MQTT timeout conditions degrade gracefully to cached state instead of crashing the runtime loop.
 
 ## Installation
 

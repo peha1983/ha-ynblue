@@ -46,6 +46,7 @@ from .const import (
 )
 from .coordinator import YnBlueCoordinator
 from .exceptions import (
+    YnBlueApiError,
     YnBlueAuthError,
     YnBlueCommandError,
     YnBlueMqttError,
@@ -172,6 +173,10 @@ class YnBlueHub:
                 except YnBlueAuthError:
                     await self._async_start_reauth()
                     raise
+                except YnBlueApiError as err:
+                    if not self.coordinator.data:
+                        raise
+                    _LOGGER.warning("Could not refresh YnBlue metadata, using cached device data: %s", err)
 
             self._prune_removed_devices()
             await self._async_refresh_due_snapshots(force_snapshot=force_snapshot, reason=reason)
@@ -190,7 +195,7 @@ class YnBlueHub:
             self._require_online_device(device_id)
             try:
                 await self.async_publish(f"/YnBlue/{device_id}/system/restart", {"state": True})
-            except YnBlueMqttError as err:
+            except (YnBlueApiError, YnBlueMqttError) as err:
                 raise YnBlueCommandError(f"Could not restart YnBlue controller {device_id}") from err
 
             self._last_snapshot_success.pop(device_id, None)
@@ -223,7 +228,7 @@ class YnBlueHub:
                 await self.async_publish(f"/YnBlue/{device_id}/system/forceMeasurement", {"state": False})
                 await asyncio.sleep(FORCE_MEASUREMENT_SETTLE_DELAY)
                 await self._async_request_snapshot_locked(device_id)
-            except YnBlueMqttError as err:
+            except (YnBlueApiError, YnBlueMqttError) as err:
                 raise YnBlueCommandError(f"Could not complete a forced measurement for {device_id}") from err
 
     async def async_set_pool_volume(self, device_id: str, value: float) -> None:
@@ -517,7 +522,7 @@ class YnBlueHub:
         for device_id in due_devices:
             try:
                 await self.async_request_snapshot(device_id)
-            except YnBlueMqttError as err:
+            except (YnBlueApiError, YnBlueMqttError) as err:
                 self._last_snapshot_attempt[device_id] = time.monotonic()
                 self._snapshot_failures[device_id] = self._snapshot_failures.get(device_id, 0) + 1
                 _LOGGER.warning(
@@ -563,7 +568,7 @@ class YnBlueHub:
                     await asyncio.sleep(post_delay)
 
                 snapshot = await self._async_request_snapshot_locked(device_id)
-            except YnBlueMqttError as err:
+            except (YnBlueApiError, YnBlueMqttError) as err:
                 raise YnBlueCommandError(f"Could not confirm YnBlue command for {device_id}") from err
 
             if expected_state is not None and not _subset_matches(snapshot, expected_state):
@@ -746,7 +751,10 @@ def _fetch_snapshot_payload(device_id: str, token: str) -> dict[str, Any]:
     client.ws_set_options(path=MQTT_PATH)
     client.on_connect = on_connect
     client.on_message = on_message
-    client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
+    try:
+        client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
+    except OSError as err:
+        raise YnBlueMqttError(f"Could not connect for a YnBlue snapshot: {err}") from err
     client.loop_start()
 
     try:
@@ -801,7 +809,10 @@ def _publish_ephemeral_message(topic: str, payload: str, token: str, retain: boo
     client.username_pw_set(MQTT_USERNAME, token)
     client.ws_set_options(path=MQTT_PATH)
     client.on_connect = on_connect
-    client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
+    try:
+        client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE)
+    except OSError as err:
+        raise YnBlueMqttError(f"Could not connect for a YnBlue command publish: {err}") from err
     client.loop_start()
 
     try:
