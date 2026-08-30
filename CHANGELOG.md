@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and the versioning used by this repository follows tagged GitHub releases.
 
-## [Unreleased]
+## [0.3.2] - 2026-08-30
 
 ### Added
 
@@ -13,6 +13,21 @@ The format is based on Keep a Changelog and the versioning used by this reposito
 ### Changed
 
 - Expanded README installation, support, and product-context documentation
+- Updated installation guidance to reflect inclusion in the default HACS catalog on July 2, 2026
+- Added CI lanes for the live-validated minimum Home Assistant 2026.6.4 and the reported login-regression basis 2026.8.1, both on Python 3.14
+- Raised the declared minimum Home Assistant version from an unverified 2025.12.0 to the live-validated 2026.6.4 baseline
+- Throttled equivalent metadata and snapshot transport warnings to one immediate warning and at most one summarized reminder every 30 minutes while retaining one-time recovery logs
+- Redacted controller identifiers from runtime warnings, transport errors, and diagnostic mapping keys
+
+### Fixed
+
+- Fixed a credential-validation deadlock that caused initial login and reauthentication to spin indefinitely
+- Removed raw controller identifiers and upstream response bodies from surfaced REST and MQTT error text
+
+### Tests
+
+- Added regression coverage for the authentication lock, config-flow authentication/timeout errors, warning throttling and recovery, and controller-identifier redaction
+- Passed a redacted live smoke test on Home Assistant 2026.6.4 with HACS 2.0.5, including existing-entry startup, duplicate-account config flow, snapshot refresh, controlled restarts, and rollback; no physical commands were issued
 
 ## [0.3.1] - 2026-06-21
 

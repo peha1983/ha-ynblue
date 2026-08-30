@@ -25,6 +25,7 @@ SNAPSHOT_REFRESH_INTERVAL: Final = timedelta(seconds=90)
 SNAPSHOT_STALE_INTERVAL: Final = timedelta(minutes=20)
 SNAPSHOT_RETRY_BACKOFF_INITIAL: Final = timedelta(minutes=5)
 SNAPSHOT_RETRY_BACKOFF_MAX: Final = timedelta(hours=1)
+WARNING_REPEAT_INTERVAL: Final = timedelta(minutes=30)
 COMMAND_SETTLE_DELAY: Final = 2.0
 FORCE_MEASUREMENT_TOGGLE_DELAY: Final = 1.0
 FORCE_MEASUREMENT_SETTLE_DELAY: Final = 5.0

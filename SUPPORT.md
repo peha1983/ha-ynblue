@@ -26,7 +26,7 @@ Open an issue when:
 
 - Home Assistant version
 - YnBlue integration version
-- installation source: HACS custom repository or local manual copy
+- installation source: standard HACS catalog, HACS custom repository, or local manual copy
 - controller product or model name if known
 - exact symptom
 - steps to reproduce
@@ -43,3 +43,5 @@ Do not post:
 - MQTT credentials
 - exact home address or GPS data
 - raw diagnostics that still contain personal information
+
+YnBlue 0.3.2 redacts cloud controller identifiers from its own warning/error messages and diagnostics mapping keys. Still inspect excerpts for unrelated Home Assistant or third-party data before sharing them.

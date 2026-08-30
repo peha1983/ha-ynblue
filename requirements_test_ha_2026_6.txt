@@ -1,0 +1,3 @@
+# Published test helper matching the live-validated minimum Home Assistant version, 2026.6.4.
+pytest-homeassistant-custom-component==0.13.340
+ruff==0.16.0

@@ -23,16 +23,27 @@ jobs:
       - uses: home-assistant/actions/hassfest@master
 
   test:
+    name: Test (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: HA 2026.6.4 (minimum/live)
+            python-version: "3.14"
+            requirements: requirements_test_ha_2026_6.txt
+          - name: HA 2026.8.1 (login regression)
+            python-version: "3.14"
+            requirements: requirements_test.txt
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_test.txt
+          pip install -r "${{ matrix.requirements }}"
       - name: Ruff
         run: ruff check .
       - name: Pytest

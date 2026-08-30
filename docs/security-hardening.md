@@ -36,6 +36,8 @@ Primary risks:
 
 - Redact registration strings, device identifiers, location data, Wi-Fi SSIDs, serial numbers, and cloud credentials.
 - Expose only the minimum useful runtime health metadata.
+- Use non-identifying controller ordinals in runtime logs and diagnostic mapping keys.
+- Do not copy vendor response bodies, MQTT topics, or raw controller identifiers into warning/error text.
 
 ### Operational safety
 

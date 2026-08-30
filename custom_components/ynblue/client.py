@@ -65,8 +65,8 @@ class YnBlueApiClient:
         """Validate credentials and return the account payload."""
         async with self._auth_lock:
             await self._async_login()
-            account = await self.async_get_account(force_refresh=True)
-        return account
+
+        return await self.async_get_account(force_refresh=True)
 
     async def async_ensure_auth(self) -> str:
         """Ensure a valid token is available and return it."""
@@ -185,27 +185,38 @@ class YnBlueApiClient:
                 timeout=20,
             ) as response:
                 text = await response.text()
+                safe_path = _redact_api_path(path)
                 if response.status in (401, 403):
-                    raise YnBlueAuthError(f"YnBlue auth failed for {path}: {response.status}")
+                    raise YnBlueAuthError(f"YnBlue auth failed for {safe_path}: {response.status}")
                 if response.status >= 400:
-                    raise YnBlueApiError(f"YnBlue API error for {path}: {response.status} {text[:300]}")
+                    raise YnBlueApiError(f"YnBlue API error for {safe_path}: {response.status}")
 
                 try:
                     data = json.loads(text)
                 except json.JSONDecodeError as err:
-                    raise YnBlueApiError(f"Invalid JSON from YnBlue for {path}") from err
+                    raise YnBlueApiError(f"Invalid JSON from YnBlue for {safe_path}") from err
         except TimeoutError as err:
-            raise YnBlueApiError(f"YnBlue request timed out for {path}") from err
+            raise YnBlueApiError(f"YnBlue request timed out for {_redact_api_path(path)}") from err
         except ClientResponseError as err:
             if err.status in (401, 403):
                 raise YnBlueAuthError("YnBlue authentication failed") from err
-            raise YnBlueApiError(f"YnBlue request failed for {path}") from err
+            raise YnBlueApiError(f"YnBlue request failed for {_redact_api_path(path)}") from err
         except ClientError as err:
-            raise YnBlueApiError(f"YnBlue request failed for {path}: {err}") from err
+            raise YnBlueApiError(f"YnBlue request failed for {_redact_api_path(path)}") from err
 
         if not isinstance(data, dict):
-            raise YnBlueApiError(f"Unexpected JSON payload for {path}: expected an object")
+            raise YnBlueApiError(
+                f"Unexpected JSON payload for {_redact_api_path(path)}: expected an object"
+            )
         return data
+
+
+def _redact_api_path(path: str) -> str:
+    """Redact controller identifiers embedded in API paths."""
+
+    if path.startswith("/ynblue/"):
+        return "/ynblue/[redacted]"
+    return path
 
 
 def _decode_jwt_expiry(token: str) -> datetime | None:

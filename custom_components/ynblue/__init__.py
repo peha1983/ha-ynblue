@@ -93,10 +93,7 @@ async def _async_prepare_entity_registry(hass: HomeAssistant, entry: ConfigEntry
 
         try:
             registry.async_update_entity(registry_entry.entity_id, **update_kwargs)
-        except ValueError as err:
+        except ValueError:
             _LOGGER.warning(
-                "Could not update entity registry entry %s to %s: %s",
-                registry_entry.entity_id,
-                target_entity_id,
-                err,
+                "Could not normalize an YnBlue entity registry entry; leaving its existing state unchanged"
             )

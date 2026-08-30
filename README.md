@@ -2,7 +2,7 @@
 
 ![Validate](https://github.com/peha1983/ha-ynblue/actions/workflows/validate.yml/badge.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/peha1983/ha-ynblue?display_name=tag&sort=semver)
-![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)
+![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)
 [![Open your Home Assistant instance and open the YnBlue repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?category=integration&owner=peha1983&repository=ha-ynblue)
 
 `ynblue` is a Home Assistant custom integration for YNEOM/YnBlue pool controllers.
@@ -17,13 +17,13 @@ The native YnBlue ecosystem is managed through the YnBlue mobile app and the `co
 
 ## Quick Start
 
-1. Open HACS and add `https://github.com/peha1983/ha-ynblue` as a custom repository of type `Integration`.
-2. Install `YnBlue`.
+1. Open HACS and search for `YnBlue` in the standard integration catalog.
+2. Download `YnBlue`.
 3. Restart Home Assistant.
 4. Add `YnBlue` from `Settings -> Devices & Services`.
 5. Sign in with the same YnBlue cloud account you use in the YnBlue mobile app.
 
-The integration is already installable through HACS as a custom repository. The default HACS store listing is still waiting in the upstream review queue.
+YnBlue has been part of the default HACS integration catalog since July 2, 2026. Adding this repository as a custom repository is no longer required.
 
 ## What This Integration Adds
 
@@ -67,16 +67,16 @@ Entities are created only when the controller reports the relevant hardware capa
 - A controller coming back online triggers an immediate snapshot refresh.
 - Safe commands are confirmed with a follow-up snapshot before Home Assistant reports success.
 - REST and MQTT timeout conditions degrade gracefully to cached state instead of crashing the runtime loop.
+- The first metadata or snapshot transport failure is logged immediately. Equivalent repeats are summarized at most every 30 minutes, and recovery is logged once.
+- Runtime warnings use redacted controller labels rather than cloud device identifiers.
 
 ## Installation
 
 ### HACS
 
-Until the repository is merged into the default HACS store, install it as a custom repository:
-
 1. Open HACS.
-2. Add `https://github.com/peha1983/ha-ynblue` as a custom repository with type `Integration`.
-3. Install `YnBlue`.
+2. Search the standard integration catalog for `YnBlue`.
+3. Download `YnBlue`.
 4. Restart Home Assistant.
 5. Add the integration from `Settings -> Devices & Services`.
 
@@ -101,6 +101,8 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - [Technical architecture](docs/technical-architecture.md)
 - [Security hardening](docs/security-hardening.md)
 - [Release process](docs/release-process.md)
+- [v0.3.2 release notes](docs/release-notes-v0.3.2.md)
+- [v0.3.2 technical release review](docs/release-review-v0.3.2.md)
 - [Core readiness notes](docs/core-readiness.md)
 
 ## Support
@@ -115,4 +117,4 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - HACS tracks GitHub releases from this repository.
 - Stable upgrades should be taken from tagged releases rather than arbitrary commits on `main`.
 - Read the [changelog](CHANGELOG.md) and the linked GitHub release notes before upgrading.
-- This integration is designed for Home Assistant `2025.12.x` and newer.
+- YnBlue 0.3.2 is supported on Home Assistant `2026.6.4` and newer. This minimum is backed by the live 2026.6.4 smoke test and a dedicated CI compatibility lane; 2026.8.1 has a separate regression lane.

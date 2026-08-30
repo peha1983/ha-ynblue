@@ -26,8 +26,8 @@ async def async_get_config_entry_diagnostics(_hass: HomeAssistant, entry: Config
 
     runtime: YnBlueRuntimeData = entry.runtime_data
     devices = {
-        device_id: async_redact_data(device, DEVICE_REDACTIONS)
-        for device_id, device in runtime.coordinator.data.items()
+        f"controller_{position}": async_redact_data(device, DEVICE_REDACTIONS)
+        for position, device in enumerate(runtime.coordinator.data.values(), start=1)
     }
     return {
         "entry": async_redact_data(dict(entry.data), REDACT_CONFIG),

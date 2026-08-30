@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import paho.mqtt.client as mqtt
@@ -43,6 +44,7 @@ from .const import (
     SNAPSHOT_RETRY_BACKOFF_INITIAL,
     SNAPSHOT_RETRY_BACKOFF_MAX,
     SNAPSHOT_STALE_INTERVAL,
+    WARNING_REPEAT_INTERVAL,
 )
 from .coordinator import YnBlueCoordinator
 from .exceptions import (
@@ -55,6 +57,14 @@ from .exceptions import (
 from .helpers import deep_merge_dict, get_nested_value, set_nested_value
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class _WarningState:
+    """Track a deduplicated warning without retaining sensitive error details."""
+
+    last_logged_at: float
+    suppressed: int = 0
 
 
 class YnBlueHub:
@@ -85,6 +95,8 @@ class YnBlueHub:
         self._last_snapshot_attempt: dict[str, float] = {}
         self._last_known_connectivity: dict[str, bool] = {}
         self._snapshot_failures: dict[str, int] = {}
+        self._metadata_warning_state: _WarningState | None = None
+        self._snapshot_warning_states: dict[str, _WarningState] = {}
 
     @property
     def available(self) -> bool:
@@ -176,7 +188,9 @@ class YnBlueHub:
                 except YnBlueApiError as err:
                     if not self.coordinator.data:
                         raise
-                    _LOGGER.warning("Could not refresh YnBlue metadata, using cached device data: %s", err)
+                    self._log_metadata_failure(err)
+                else:
+                    self._log_metadata_recovery()
 
             self._prune_removed_devices()
             await self._async_refresh_due_snapshots(force_snapshot=force_snapshot, reason=reason)
@@ -196,7 +210,7 @@ class YnBlueHub:
             try:
                 await self.async_publish(f"/YnBlue/{device_id}/system/restart", {"state": True})
             except (YnBlueApiError, YnBlueMqttError) as err:
-                raise YnBlueCommandError(f"Could not restart YnBlue controller {device_id}") from err
+                raise YnBlueCommandError("Could not restart the YnBlue controller") from err
 
             self._last_snapshot_success.pop(device_id, None)
             self._last_known_connectivity[device_id] = False
@@ -211,8 +225,8 @@ class YnBlueHub:
                 self.hass,
                 RESTART_RECOVERY_DELAY,
                 lambda _now: self.hass.async_create_background_task(
-                    self._async_run_delayed_refresh(f"restart_recovery:{device_id}"),
-                    f"ynblue_restart_recovery_{device_id}",
+                    self._async_run_delayed_refresh("restart_recovery"),
+                    "ynblue_restart_recovery",
                 ),
             )
         )
@@ -229,7 +243,7 @@ class YnBlueHub:
                 await asyncio.sleep(FORCE_MEASUREMENT_SETTLE_DELAY)
                 await self._async_request_snapshot_locked(device_id)
             except (YnBlueApiError, YnBlueMqttError) as err:
-                raise YnBlueCommandError(f"Could not complete a forced measurement for {device_id}") from err
+                raise YnBlueCommandError("Could not complete the forced YnBlue measurement") from err
 
     async def async_set_pool_volume(self, device_id: str, value: float) -> None:
         """Update the pool volume."""
@@ -444,7 +458,7 @@ class YnBlueHub:
         try:
             message = json.loads(payload)
         except json.JSONDecodeError:
-            _LOGGER.debug("Discarding invalid YnBlue MQTT payload for %s", topic)
+            _LOGGER.debug("Discarding an invalid YnBlue MQTT payload")
             return
 
         if not topic.startswith("/YnBlue/"):
@@ -509,9 +523,9 @@ class YnBlueHub:
             self._last_known_connectivity[device_id] = is_connected
 
             if was_connected is True and not is_connected:
-                _LOGGER.info("YnBlue device %s is currently offline", device_id)
+                _LOGGER.info("YnBlue %s is currently offline", self._device_log_label(device_id))
             elif was_connected is False and is_connected:
-                _LOGGER.info("YnBlue device %s is back online", device_id)
+                _LOGGER.info("YnBlue %s is back online", self._device_log_label(device_id))
 
             if not is_connected:
                 continue
@@ -525,12 +539,7 @@ class YnBlueHub:
             except (YnBlueApiError, YnBlueMqttError) as err:
                 self._last_snapshot_attempt[device_id] = time.monotonic()
                 self._snapshot_failures[device_id] = self._snapshot_failures.get(device_id, 0) + 1
-                _LOGGER.warning(
-                    "Could not fetch the YnBlue %s snapshot for %s: %s",
-                    reason,
-                    device_id,
-                    err,
-                )
+                self._log_snapshot_failure(device_id, reason, err)
 
     async def _async_request_snapshot_locked(self, device_id: str) -> dict[str, Any]:
         """Fetch and merge a full snapshot while holding the device lock."""
@@ -546,6 +555,7 @@ class YnBlueHub:
         self._last_snapshot_success[device_id] = time.monotonic()
         self._last_known_connectivity[device_id] = True
         self._snapshot_failures.pop(device_id, None)
+        self._log_snapshot_recovery(device_id)
         return snapshot
 
     async def _async_execute_command(
@@ -569,12 +579,10 @@ class YnBlueHub:
 
                 snapshot = await self._async_request_snapshot_locked(device_id)
             except (YnBlueApiError, YnBlueMqttError) as err:
-                raise YnBlueCommandError(f"Could not confirm YnBlue command for {device_id}") from err
+                raise YnBlueCommandError("Could not confirm the YnBlue command") from err
 
             if expected_state is not None and not _subset_matches(snapshot, expected_state):
-                raise YnBlueCommandError(
-                    f"YnBlue command to {topic} did not produce the expected device state"
-                )
+                raise YnBlueCommandError("The YnBlue command did not produce the expected device state")
             return snapshot
 
     async def _async_run_delayed_refresh(self, reason: str) -> None:
@@ -588,7 +596,7 @@ class YnBlueHub:
         except YnBlueAuthError:
             await self._async_start_reauth()
         except Exception:
-            _LOGGER.exception("Delayed YnBlue refresh failed after %s", reason)
+            _LOGGER.exception("A delayed YnBlue refresh failed")
 
     async def _async_start_reauth(self) -> None:
         """Start Home Assistant reauthentication."""
@@ -612,6 +620,7 @@ class YnBlueHub:
             self._last_snapshot_attempt,
             self._last_known_connectivity,
             self._snapshot_failures,
+            self._snapshot_warning_states,
         ):
             for device_id in tuple(cache):
                 if device_id not in current_ids:
@@ -628,6 +637,75 @@ class YnBlueHub:
         if last_success is None:
             return True
         return now - last_success >= SNAPSHOT_REFRESH_INTERVAL.total_seconds()
+
+    def _log_metadata_failure(self, err: Exception) -> None:
+        """Log the first metadata failure and periodic redacted reminders."""
+
+        now = time.monotonic()
+        state = self._metadata_warning_state
+        if state is not None and now - state.last_logged_at < WARNING_REPEAT_INTERVAL.total_seconds():
+            state.suppressed += 1
+            return
+
+        suffix = _suppressed_warning_suffix(state)
+        _LOGGER.warning(
+            "Could not refresh YnBlue metadata; using cached device data (%s)%s",
+            _transport_error_kind(err),
+            suffix,
+        )
+        self._metadata_warning_state = _WarningState(last_logged_at=now)
+
+    def _log_metadata_recovery(self) -> None:
+        """Log a metadata recovery once and clear warning suppression state."""
+
+        state = self._metadata_warning_state
+        if state is None:
+            return
+        _LOGGER.info(
+            "YnBlue metadata refresh recovered%s",
+            _suppressed_warning_suffix(state),
+        )
+        self._metadata_warning_state = None
+
+    def _log_snapshot_failure(self, device_id: str, reason: str, err: Exception) -> None:
+        """Log a redacted snapshot warning with bounded repetition."""
+
+        now = time.monotonic()
+        state = self._snapshot_warning_states.get(device_id)
+        if state is not None and now - state.last_logged_at < WARNING_REPEAT_INTERVAL.total_seconds():
+            state.suppressed += 1
+            return
+
+        suffix = _suppressed_warning_suffix(state)
+        _LOGGER.warning(
+            "Could not fetch a YnBlue snapshot for %s during %s (%s)%s",
+            self._device_log_label(device_id),
+            _safe_refresh_reason(reason),
+            _transport_error_kind(err),
+            suffix,
+        )
+        self._snapshot_warning_states[device_id] = _WarningState(last_logged_at=now)
+
+    def _log_snapshot_recovery(self, device_id: str) -> None:
+        """Log a snapshot recovery once and clear warning suppression state."""
+
+        state = self._snapshot_warning_states.pop(device_id, None)
+        if state is None:
+            return
+        _LOGGER.info(
+            "YnBlue snapshot refresh recovered for %s%s",
+            self._device_log_label(device_id),
+            _suppressed_warning_suffix(state),
+        )
+
+    def _device_log_label(self, device_id: str) -> str:
+        """Return a stable per-refresh label without exposing the controller identifier."""
+
+        try:
+            position = tuple(self.coordinator.data).index(device_id) + 1
+        except (AttributeError, ValueError):
+            return "controller"
+        return f"controller {position}"
 
     @staticmethod
     def _snapshot_retry_delay(failures: int) -> float:
@@ -647,7 +725,7 @@ class YnBlueHub:
 
         device = self.coordinator.get_device(device_id)
         if device is None:
-            raise YnBlueValidationError(f"Unknown YnBlue device: {device_id}")
+            raise YnBlueValidationError("Unknown YnBlue controller")
         return device
 
     def _require_online_device(self, device_id: str) -> dict[str, Any]:
@@ -704,9 +782,9 @@ def _publish_message(client: mqtt.Client, topic: str, payload: str, retain: bool
     try:
         info.wait_for_publish()
     except RuntimeError as err:
-        raise YnBlueMqttError(f"Failed to publish MQTT message to {topic}: {err}") from err
+        raise YnBlueMqttError("Failed to publish the YnBlue MQTT message") from err
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
-        raise YnBlueMqttError(f"Failed to publish MQTT message to {topic}: rc={info.rc}")
+        raise YnBlueMqttError(f"Failed to publish the YnBlue MQTT message: rc={info.rc}")
 
 
 def _fetch_snapshot_payload(device_id: str, token: str) -> dict[str, Any]:
@@ -839,6 +917,38 @@ def _first_or_full(value: Any) -> Any:
     if isinstance(value, list) and len(value) == 1:
         return value[0]
     return value
+
+
+def _safe_refresh_reason(reason: str) -> str:
+    """Return a bounded diagnostic refresh reason."""
+
+    return {
+        "startup": "startup refresh",
+        "periodic": "periodic refresh",
+        "manual": "manual refresh",
+        "manual_reconnect": "manual reconnect",
+        "restart_recovery": "restart recovery",
+    }.get(reason, "scheduled refresh")
+
+
+def _transport_error_kind(err: Exception) -> str:
+    """Classify an exception without copying sensitive exception text into logs."""
+
+    if "timeout" in str(err).lower() or "timed out" in str(err).lower():
+        return "transport timeout"
+    if isinstance(err, YnBlueMqttError):
+        return "MQTT transport error"
+    if isinstance(err, YnBlueApiError):
+        return "API transport error"
+    return "transport error"
+
+
+def _suppressed_warning_suffix(state: _WarningState | None) -> str:
+    """Describe suppressed repeats without retaining their details."""
+
+    if state is None or state.suppressed == 0:
+        return ""
+    return f"; {state.suppressed} similar warning(s) suppressed"
 
 
 def _subset_matches(actual: Any, expected: Any) -> bool:

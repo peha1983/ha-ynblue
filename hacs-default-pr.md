@@ -1,3 +1,7 @@
+## Submission status
+
+Accepted into the default HACS integration catalog on July 2, 2026 via [hacs/default#7723](https://github.com/hacs/default/pull/7723). This file is retained as the historical submission record.
+
 ## Context
 
 This repository provides a Home Assistant integration for YNEOM's YnBlue connected pool controllers. YnBlue is a cloud-connected pool automation and water-treatment platform with automated filtration, pH correction, chemical treatment management, alerts, and optional connected equipment such as heating, lighting, robotic cleaners, and auxiliary relays. Upstream product references: <https://www.yneom.com/en/connected-pool/>, <https://www.yneom.com/en/faq/>, and <https://www.yneom.com/en/ynblue-app/>.

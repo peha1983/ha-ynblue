@@ -1,2 +1,3 @@
-pytest-homeassistant-custom-component==0.13.205
-ruff==0.11.13
+# Commit e783f757 tracks Home Assistant 2026.8.1 and is not published on PyPI.
+pytest-homeassistant-custom-component @ git+https://github.com/MatthewFlamm/pytest-homeassistant-custom-component.git@e783f75794096c67860fae7f39089ee5f5f17c6a
+ruff==0.16.0

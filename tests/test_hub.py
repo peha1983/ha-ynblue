@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from custom_components.ynblue.client import YnBlueApiClient
+from custom_components.ynblue.const import WARNING_REPEAT_INTERVAL
 from custom_components.ynblue.coordinator import YnBlueCoordinator
 from custom_components.ynblue.exceptions import YnBlueApiError, YnBlueCommandError, YnBlueMqttError
 from custom_components.ynblue.hub import YnBlueHub, _fetch_snapshot_payload
@@ -288,14 +290,102 @@ async def test_refresh_uses_cached_metadata_when_api_times_out(hass, config_entr
         patch.object(
             coordinator,
             "async_refresh_metadata",
-            AsyncMock(side_effect=YnBlueApiError("YnBlue request timed out for /ynblue/test")),
+            AsyncMock(
+                side_effect=YnBlueApiError(
+                    f"YnBlue request timed out for /ynblue/{device_payload['id']}"
+                )
+            ),
         ),
         patch.object(hub, "async_request_snapshot", AsyncMock()) as async_request_snapshot,
     ):
         await hub.async_refresh_now(force_snapshot=True, reason="periodic")
 
     assert "using cached device data" in caplog.text
+    assert device_payload["id"] not in caplog.text
     async_request_snapshot.assert_awaited_once_with(device_payload["id"])
+
+
+async def test_metadata_warnings_are_throttled_and_recovery_is_logged(
+    hass, config_entry, device_payload, caplog
+):
+    """Test metadata warnings are deduplicated without hiding recovery."""
+
+    caplog.set_level(logging.INFO, logger="custom_components.ynblue.hub")
+    sensitive_id = device_payload["id"]
+    error = YnBlueApiError(f"YnBlue request timed out for /ynblue/{sensitive_id}")
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({sensitive_id: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+
+    with (
+        patch.object(
+            coordinator,
+            "async_refresh_metadata",
+            AsyncMock(side_effect=[error, error, error, {}]),
+        ),
+        patch.object(hub, "async_request_snapshot", AsyncMock()),
+    ):
+        await hub.async_refresh_now(force_snapshot=True)
+        await hub.async_refresh_now(force_snapshot=True)
+
+        assert hub._metadata_warning_state is not None
+        hub._metadata_warning_state.last_logged_at -= (
+            WARNING_REPEAT_INTERVAL.total_seconds() + 1
+        )
+        await hub.async_refresh_now(force_snapshot=True)
+        await hub.async_refresh_now(force_snapshot=True)
+
+    warnings = [record.message for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 2
+    assert "1 similar warning(s) suppressed" in warnings[-1]
+    assert "metadata refresh recovered" in caplog.text
+    assert hub._metadata_warning_state is None
+    assert sensitive_id not in caplog.text
+
+
+async def test_snapshot_warnings_are_throttled_and_device_id_is_redacted(
+    hass, config_entry, device_payload, caplog
+):
+    """Test repeated snapshot warnings retain signal without leaking controller IDs."""
+
+    caplog.set_level(logging.INFO, logger="custom_components.ynblue.hub")
+    sensitive_id = device_payload["id"]
+    api = YnBlueApiClient(
+        session=None,  # type: ignore[arg-type]
+        email="patrick@example.com",
+        password="secret",
+    )
+    coordinator = YnBlueCoordinator(hass, config_entry, api)
+    coordinator.async_set_updated_data({sensitive_id: device_payload})
+    hub = YnBlueHub(hass, config_entry, coordinator, api)
+    hub._last_known_connectivity[sensitive_id] = False
+
+    with patch.object(
+        hub,
+        "async_request_snapshot",
+        AsyncMock(side_effect=YnBlueMqttError(f"timed out for {sensitive_id}")),
+    ):
+        await hub.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="periodic")
+        await hub.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="periodic")
+
+        state = hub._snapshot_warning_states[sensitive_id]
+        state.last_logged_at -= WARNING_REPEAT_INTERVAL.total_seconds() + 1
+        await hub.async_refresh_now(force_snapshot=True, refresh_metadata=False, reason="periodic")
+
+    hub._log_snapshot_recovery(sensitive_id)
+
+    warnings = [record.message for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 2
+    assert warnings[0].startswith("Could not fetch a YnBlue snapshot for controller 1")
+    assert "1 similar warning(s) suppressed" in warnings[-1]
+    assert "snapshot refresh recovered for controller 1" in caplog.text
+    assert "back online" in caplog.text
+    assert sensitive_id not in caplog.text
 
 
 def test_snapshot_helper_wraps_connect_timeout():

@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Login spins indefinitely or ends with an unknown error
+
+YnBlue 0.3.1 contains a credential-validation deadlock that can leave the Home Assistant config flow waiting indefinitely even when the cloud responds. This is fixed in YnBlue 0.3.2.
+
+What to do:
+
+1. Upgrade to the v0.3.2 GitHub release through HACS when it is available.
+2. Restart Home Assistant after upgrading.
+3. Add YnBlue again from `Settings -> Devices & Services`.
+
+After the fix, rejected credentials are shown as an authentication error and REST/network timeouts are shown as a connection error. If the YnBlue mobile app accepts the same account but Home Assistant still cannot connect on 0.3.2 or newer, collect redacted logs before opening an issue. Never publish the account email, password, or token.
+
+YnBlue 0.3.2 requires Home Assistant 2026.6.4 or newer. HACS will enforce this declared minimum for the 0.3.2 release.
+
 ## Entities are unavailable after startup
 
 What is normal:
@@ -67,12 +81,14 @@ If a command is supposed to be supported but repeatedly fails with the controlle
 
 ## HACS installation does not show the integration
 
-1. Confirm the repository URL is `https://github.com/peha1983/ha-ynblue`.
-2. Add it as type `Integration`.
-3. Restart Home Assistant after install.
+YnBlue has been in the standard HACS integration catalog since July 2, 2026.
+
+1. Refresh HACS data and search for `YnBlue` in the integration catalog.
+2. Confirm HACS itself is up to date.
+3. Download YnBlue and restart Home Assistant.
 4. Hard-refresh or clear the browser cache if HACS does not update the visible repository list.
 
-Official HACS default listing is still pending upstream review. Until then, install this repository as a HACS custom repository.
+No custom repository entry is required. Existing custom-repository installations can continue to use the same GitHub releases.
 
 ## Upgrading through HACS
 
@@ -95,3 +111,5 @@ Please include:
   - `sensor.<device>_live_data_age_minutes`
 
 Before sharing logs publicly, redact secrets and personal identifiers.
+
+YnBlue 0.3.2 logs the first metadata or snapshot transport failure immediately, suppresses equivalent repeats for 30 minutes, then emits a summarized reminder if the failure continues. A successful refresh produces one recovery message and resets the suppression window. This behavior limits log noise without hiding failure/recovery transitions. Controller identifiers are replaced with labels such as `controller 1`.
