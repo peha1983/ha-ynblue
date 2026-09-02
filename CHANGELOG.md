@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and the versioning used by this repository follows tagged GitHub releases.
 
+## [Unreleased]
+
+### Added
+
+- Added a repeatable HACS ZIP package and release workflow so future package requests are visible through GitHub release-asset download counters
+- Documented the measurement limits and the initial 90-day adoption baseline
+
 ## [0.3.2] - 2026-08-30
 
 ### Added

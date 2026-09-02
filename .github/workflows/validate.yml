@@ -8,6 +8,16 @@ on:
   workflow_dispatch:
 
 jobs:
+  package:
+    name: HACS release package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build HACS package
+        run: bash scripts/build-hacs-zip.sh "$RUNNER_TEMP/ynblue.zip"
+      - name: Inspect package contents
+        run: unzip -l "$RUNNER_TEMP/ynblue.zip"
+
   hacs:
     runs-on: ubuntu-latest
     steps:

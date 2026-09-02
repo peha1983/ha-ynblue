@@ -26,8 +26,28 @@ YnBlue has been listed in the default HACS integration catalog since July 2, 202
 5. Confirm the GitHub `Validate` workflow is green on the exact release commit.
 6. Update `custom_components/ynblue/manifest.json` version if needed.
 7. Update `CHANGELOG.md`.
-8. Create a GitHub release with structured notes.
-9. After release, verify HACS sees the new version.
+8. Build and inspect the HACS package locally:
+
+   ```bash
+   bash scripts/build-hacs-zip.sh
+   unzip -l dist/ynblue.zip
+   ```
+
+9. Create a GitHub release with structured notes. Publishing the release triggers `Publish HACS package`, which validates the tag against the integration manifest and attaches `ynblue.zip`.
+10. Confirm that the release contains exactly one `ynblue.zip` asset and that its contents start with `manifest.json`, `__init__.py`, and the other integration files rather than a wrapper directory.
+11. Verify HACS sees and can install the new version.
+
+## One-time ZIP tracking activation
+
+The release workflow measures only package requests made after a release asset exists. Before the `zip_release` and `filename` settings in `hacs.json` are published to `main`:
+
+1. Run `bash scripts/build-hacs-zip.sh /tmp/ynblue.zip` on the v0.3.2 code.
+2. Confirm that `custom_components/ynblue` is unchanged from the v0.3.2 tag.
+3. With explicit release approval, attach `/tmp/ynblue.zip` to the existing v0.3.2 GitHub release.
+4. Verify a clean HACS installation of v0.3.2 from that asset.
+5. Only then publish the new HACS manifest and release workflow.
+
+This ordering prevents HACS from looking for `ynblue.zip` before the current release provides it. Historical source installs remain uncounted.
 
 ## Release note structure
 

@@ -1,0 +1,46 @@
+name: Publish HACS package
+
+on:
+  release:
+    types:
+      - published
+
+concurrency:
+  group: hacs-package-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Attach ynblue.zip to release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Validate release metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          manifest_version="$(jq -r '.version' custom_components/ynblue/manifest.json)"
+          if [[ "$RELEASE_TAG" != "v$manifest_version" ]]; then
+            echo "::error::Release tag $RELEASE_TAG does not match manifest version $manifest_version"
+            exit 1
+          fi
+          jq -e '.zip_release == true and .filename == "ynblue.zip"' hacs.json >/dev/null
+
+      - name: Build HACS package
+        run: bash scripts/build-hacs-zip.sh "$RUNNER_TEMP/ynblue.zip"
+
+      - name: Attach HACS package to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/ynblue.zip" --clobber

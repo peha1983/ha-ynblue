@@ -3,6 +3,7 @@
 ![Validate](https://github.com/peha1983/ha-ynblue/actions/workflows/validate.yml/badge.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/peha1983/ha-ynblue?display_name=tag&sort=semver)
 ![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)
+![HACS package requests](https://img.shields.io/github/downloads/peha1983/ha-ynblue/total?label=HACS%20package%20requests)
 [![Open your Home Assistant instance and open the YnBlue repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?category=integration&owner=peha1983&repository=ha-ynblue)
 
 `ynblue` is a Home Assistant custom integration for YNEOM/YnBlue pool controllers.
@@ -101,6 +102,7 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - [Technical architecture](docs/technical-architecture.md)
 - [Security hardening](docs/security-hardening.md)
 - [Release process](docs/release-process.md)
+- [Usage metrics and measurement limits](docs/usage-metrics.md)
 - [v0.3.2 release notes](docs/release-notes-v0.3.2.md)
 - [v0.3.2 technical release review](docs/release-review-v0.3.2.md)
 - [Core readiness notes](docs/core-readiness.md)
@@ -115,6 +117,7 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 ## Release And Upgrade Model
 
 - HACS tracks GitHub releases from this repository.
+- Each release publishes one `ynblue.zip` package for HACS. Its GitHub download counter measures package requests, including installs, updates, and redownloads; it is not a unique-user counter.
 - Stable upgrades should be taken from tagged releases rather than arbitrary commits on `main`.
 - Read the [changelog](CHANGELOG.md) and the linked GitHub release notes before upgrading.
 - YnBlue 0.3.2 is supported on Home Assistant `2026.6.4` and newer. This minimum is backed by the live 2026.6.4 smoke test and a dedicated CI compatibility lane; 2026.8.1 has a separate regression lane.
