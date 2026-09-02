@@ -1,51 +1,66 @@
-# Technical release review: YnBlue v0.3.2 candidate
+# Technical post-release review: YnBlue v0.3.2
 
-Review date: 2026-08-30
+Review date: 2026-09-02
 
 ## Executive thesis
 
-The v0.3.2 candidate is technically sound for review: the login deadlock has a minimal lock-boundary fix, repeated timeout warnings are bounded without losing first-failure/reminder/recovery transitions, controller identifiers are removed from known runtime warning/error paths, and HACS/version documentation is internally consistent. Publication still depends on remote validation of the exact release commit.
+YnBlue v0.3.2 is publicly released and the post-release gates are complete. The
+published release is anchored to the exact validated commit, all main, tag and
+scheduled validation runs through the review date are green, HACS distribution
+is confirmed, and a production HACS installation passed live acceptance. No
+P0, P1 or P2 release blockers remain.
 
-## Validated strengths
+## Publication and artifact integrity
 
-- Authentication validation no longer calls an auth-taking account request while holding the authentication lock.
-- Metadata failures retain cached device data; snapshot failures retain the existing retry backoff and freshness/availability semantics.
-- Warning suppression is stateful, per controller where applicable, and reset by successful recovery.
-- Runtime log labels and diagnostics mapping keys no longer expose cloud controller identifiers; API errors no longer include vendor response bodies.
-- The Home Assistant compatibility strategy has two explicit lanes: the live-validated 2026.6.4 minimum and the 2026.8.1 login-regression basis.
-- Manifest version, changelog, release notes and HACS minimum are aligned for v0.3.2.
-- The default HACS catalog contains `peha1983/ha-ynblue`; a full GitHub release tagged `v0.3.2` is the intended upgrade source.
+- The full [GitHub release](https://github.com/peha1983/ha-ynblue/releases/tag/v0.3.2)
+  was published as `v0.3.2`; it is neither a draft nor a prerelease.
+- The `v0.3.2` tag peels to release commit
+  `dc867d3971ebad815b7ccb30ee3c2226dbb7a79f`.
+- The release commit was the exact `origin/main` commit validated before
+  publication. The post-release documentation cleanup does not move or replace
+  the release tag.
+- Manifest version, changelog, release notes and HACS compatibility metadata
+  remain aligned with v0.3.2.
 
-## Findings and conditions
+## Validation evidence
 
-### P2 — exact-commit remote validation is outstanding
+- The `Validate` workflow passed on the release commit for both the `main` push
+  and the `v0.3.2` tag push.
+- Both exact-commit runs completed all four required jobs successfully: Home
+  Assistant 2026.6.4 tests, Home Assistant 2026.8.1 tests, hassfest and HACS
+  validation.
+- Daily scheduled `Validate` runs on the release commit remained green through
+  2026-09-02.
+- The default HACS integration catalog contains `peha1983/ha-ynblue`, and HACS
+  resolves the published v0.3.2 release as the stable installation source.
+- v0.3.2 was installed from HACS on a production Home Assistant system and
+  passed live acceptance. No household data, credentials or controller
+  identifiers are retained in this review.
 
-Publication is authorized, but GitHub Actions cannot run both test lanes, hassfest and repository validation against the exact release commit until that commit is pushed. Any earlier green run against unchanged remote `main` is not candidate evidence.
+## Release safety and rollback
 
-Required action: run `Validate` on the exact release commit and require all jobs to pass before tagging or creating the GitHub release.
+- Operational backups and the rollback path were checked as part of release
+  acceptance.
+- If a regression is discovered, reinstall the previously published v0.3.1
+  release through HACS and restart Home Assistant. v0.3.2 introduced no config
+  entry migration, so existing account configuration and entities are retained.
+- The login deadlock fixed in v0.3.2, timeout handling, warning throttling,
+  recovery transitions and identifier redaction are covered by automated tests.
+- There are no open P0, P1 or P2 findings blocking continued use of v0.3.2.
 
-### Closed — minimum-version automation passed locally
+## Monitor later
 
-The published test helper for Home Assistant 2026.6.4 is pinned in the new CI lane. Its isolated local lane passed all 34 tests, complementing the completed redacted live smoke test on Home Assistant 2026.6.4. The exact automated remote lane remains a release gate.
-
-### P2 — HACS container validation is outstanding for the candidate
-
-The local HACS action container was not executed with its mutable remote `main` tag and a writable full-workspace mount. Safe static alternatives passed: JSON/YAML parsing, required manifest/HACS fields, one-integration repository layout, version/minimum consistency, default-catalog membership and release-path review.
-
-Required action: require the remote HACS job and verify HACS discovers `v0.3.2` after the GitHub release is created.
-
-### P3 — destructive timeout simulation remains unperformed live
-
-The live gate did not deliberately force an offline or transport-timeout incident. Cached-state behavior, retry backoff, warning suppression and redaction are covered by automated tests, and historical evidence supports the fallback behavior. Monitor the first post-release real timeout/recovery cycle for the intended warning cadence.
-
-## Release and rollback
-
-- Publish only from the exact commit that passes all remote gates.
-- Create a full GitHub release tagged `v0.3.2`; a tag alone is insufficient for the intended HACS path.
-- If a release regression occurs, reinstall the previously published v0.3.1 release and restart Home Assistant. Existing config-entry data is unchanged by v0.3.2.
+The production acceptance did not deliberately force a destructive controller
+offline or transport-timeout incident. Automated coverage validates cached
+state, retry backoff, bounded warning cadence, identifier redaction and recovery
+transitions. Monitor the next naturally occurring timeout/recovery cycle to
+confirm the same behavior in production; this is an operational observation,
+not a release blocker.
 
 ## Release posture
 
-**ready with conditions**
+**technically credible**
 
-Conditions: exact-commit remote matrix/hassfest/HACS validation must pass, then the published `v0.3.2` release must be observed by HACS. No evidence currently justifies publishing before those gates.
+Publication, distribution, automated validation, production installation and
+rollback readiness are complete. Routine monitoring is the only remaining
+post-release activity.
