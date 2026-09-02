@@ -1,0 +1,725 @@
+{
+  "catalog_version": 1,
+  "scanned_at": "2026-08-01",
+  "scope": "Known YnBlue MQTT topics scanned from the Home Assistant integration source code, tests, saved snapshots, and live reverse-engineering sessions.",
+  "broker_profile": {
+    "host": "mqtt.yneom-iot.com",
+    "port": 443,
+    "transport": "websockets",
+    "path": "/mqtt",
+    "username": "JWT-client",
+    "protocol": "MQTTv311",
+    "tls": true
+  },
+  "confidence_levels": {
+    "confirmed_in_source": "Topic is explicitly present in integration source code.",
+    "confirmed_live": "Topic was exercised successfully against the live YnBlue broker.",
+    "parser_supported": "Topic family is accepted by the runtime parser, but exact live variants may be broader.",
+    "inferred_from_entities": "Generic hub method is confirmed in source and concrete section names are derived from entity mappings."
+  },
+  "notes": [
+    "All mutating commands are published inside the /YnBlue/ namespace and then confirmed with a fresh full snapshot.",
+    "No dedicated pH sensor init or sensor reset MQTT topic was found during this scan.",
+    "The live pH calibration topic is known, but not yet integrated into Home Assistant entities or services."
+  ],
+  "topics": [
+    {
+      "topic": "/YnBlue/{device_id}/json/all",
+      "category": "snapshot_request",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Requests a fresh full device snapshot.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "button.request_snapshot",
+        "post-command state verification",
+        "periodic snapshot refresh"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:712-783",
+        "custom_components/ynblue/button.py:41-47"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/data/json/all",
+      "category": "snapshot_response",
+      "direction": "subscribe_from_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Full snapshot response to a snapshot request.",
+      "payload_shape": {
+        "data": "object"
+      },
+      "payload_examples": [
+        {
+          "data": {
+            "system": {
+              "poolVolume": 21
+            },
+            "temperature": {
+              "measured": 20.875
+            },
+            "pH": {
+              "measured": 7.4
+            }
+          }
+        }
+      ],
+      "used_by": [
+        "initial snapshot load",
+        "command confirmation",
+        "periodic refresh"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:715-783",
+        "tests/test_hub.py:69-98"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/data/json/measured",
+      "category": "partial_state_response",
+      "direction": "subscribe_from_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Measured-value update topic accepted by the runtime parser.",
+      "payload_shape": {
+        "data": "object"
+      },
+      "payload_examples": [
+        {
+          "data": {
+            "temperature": {
+              "measured": 24.5,
+              "status": true
+            },
+            "pH": {
+              "measured": 7.2,
+              "sensorStatus": true
+            }
+          }
+        }
+      ],
+      "used_by": [
+        "runtime parser"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:441-485",
+        "tests/test_hub.py:16-36"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/data/json/{section_path}",
+      "category": "generic_partial_state_response",
+      "direction": "subscribe_from_broker",
+      "confidence": "parser_supported",
+      "description": "Generic section update family accepted by the runtime parser. Nested section paths are merged into the in-memory device state.",
+      "payload_shape": {
+        "data": "object"
+      },
+      "payload_examples": [
+        {
+          "data": {
+            "measured": 7.2,
+            "sensorStatus": true
+          }
+        }
+      ],
+      "used_by": [
+        "runtime parser"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:468-485"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/connected_ack",
+      "category": "acknowledgement",
+      "direction": "subscribe_from_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Connectivity acknowledgement topic. Updates the runtime online state.",
+      "payload_shape": {
+        "state": "string_or_boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "runtime parser"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:459-463"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/notification_ack",
+      "category": "acknowledgement",
+      "direction": "subscribe_from_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Notification acknowledgement topic. Currently ignored by the integration.",
+      "payload_shape": {},
+      "payload_examples": [],
+      "used_by": [
+        "runtime parser"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:465-466"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/system/restart",
+      "category": "system_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Restarts the physical YnBlue controller.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "button.restart_controller"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:191-218",
+        "custom_components/ynblue/button.py:54-60"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/system/forceMeasurement",
+      "category": "system_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Triggers a manual measurement pulse. The integration toggles the state true and then false.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        },
+        {
+          "state": false
+        }
+      ],
+      "used_by": [
+        "button.force_measurement"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:220-232",
+        "custom_components/ynblue/button.py:48-53"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/system/poolVolume",
+      "category": "system_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Updates the configured pool volume.",
+      "payload_shape": {
+        "poolVolume": "number"
+      },
+      "payload_examples": [
+        {
+          "poolVolume": 42
+        }
+      ],
+      "used_by": [
+        "number.pool_volume"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:234-243",
+        "custom_components/ynblue/number.py:41-52",
+        "tests/test_hub.py:39-66"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/filter/mode",
+      "category": "mode_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Updates the filter operating mode. Manual mode can include timing parameters.",
+      "payload_shape": {
+        "mode": "integer",
+        "param1": "optional",
+        "param2": "optional",
+        "param3": "optional"
+      },
+      "payload_examples": [
+        {
+          "mode": 1
+        },
+        {
+          "mode": 4,
+          "param1": 8,
+          "param2": 60,
+          "param3": 12
+        }
+      ],
+      "used_by": [
+        "select.filter_mode"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:245-263",
+        "custom_components/ynblue/select.py:49-58"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/heater/mode",
+      "category": "mode_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Updates the heater mode and heater target payload.",
+      "payload_shape": {
+        "mode": "integer",
+        "param1": "number",
+        "param2": "number"
+      },
+      "payload_examples": [
+        {
+          "mode": 0,
+          "param1": 0,
+          "param2": 0
+        },
+        {
+          "mode": 1,
+          "param1": 28.0,
+          "param2": 0
+        }
+      ],
+      "used_by": [
+        "select.heater_mode",
+        "number.heater_target"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:265-301",
+        "custom_components/ynblue/select.py:59-67",
+        "custom_components/ynblue/number.py:78-90"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/chemical/mode",
+      "category": "mode_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Updates the chemical dosing mode or target.",
+      "payload_shape": {
+        "mode": "integer",
+        "value": "number"
+      },
+      "payload_examples": [
+        {
+          "mode": 2,
+          "value": 650
+        },
+        {
+          "mode": 2,
+          "value": 700
+        }
+      ],
+      "used_by": [
+        "select.chemical_mode",
+        "number.chemical_target"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:303-327",
+        "custom_components/ynblue/select.py:68-76",
+        "custom_components/ynblue/number.py:66-77"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/pH/mode",
+      "category": "mode_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Updates pH regulation mode, pH target, or manual pH injection state depending on payload.",
+      "payload_shape": {
+        "mode": "string_or_integer",
+        "value": "string_or_integer"
+      },
+      "payload_examples": [
+        {
+          "mode": "1",
+          "value": "7.40"
+        },
+        {
+          "mode": "0",
+          "value": "7.20"
+        },
+        {
+          "mode": 2,
+          "value": 1
+        },
+        {
+          "mode": 2,
+          "value": 0
+        }
+      ],
+      "used_by": [
+        "select.ph_mode",
+        "number.ph_target",
+        "button.inject_ph",
+        "button.stop_ph_injection"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:329-373",
+        "custom_components/ynblue/select.py:77-85",
+        "custom_components/ynblue/number.py:53-65",
+        "custom_components/ynblue/button.py:67-78",
+        "tests/test_hub.py:200-226"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/electrolyser/tempProtection",
+      "category": "feature_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Toggles low-temperature protection for the electrolyser.",
+      "payload_shape": {
+        "mode": "boolean"
+      },
+      "payload_examples": [
+        {
+          "mode": true
+        },
+        {
+          "mode": false
+        }
+      ],
+      "used_by": [
+        "switch.electrolyser_temp_protection"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:375-383",
+        "custom_components/ynblue/switch.py:77-83"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/electrolyser/protectionMode",
+      "category": "feature_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Updates the electrolyser protection mode.",
+      "payload_shape": {
+        "mode": "integer"
+      },
+      "payload_examples": [
+        {
+          "mode": 2
+        }
+      ],
+      "used_by": [
+        "select.electrolyser_protection_mode"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:385-394",
+        "custom_components/ynblue/select.py:86-94"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/robot/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles the robot output state.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "switch.robot"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/switch.py:41-48"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/swimJet/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles the swim jet output state.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "switch.swim_jet"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/switch.py:49-55"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/fountain/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles the fountain output state.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "switch.fountain"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/switch.py:56-62"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/switch/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles auxiliary switch output 1.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "switch.aux_switch"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/switch.py:63-69"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/switch2/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles auxiliary switch output 2.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "switch.aux_switch_2"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/switch.py:70-76"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/light/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles light output 1.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "light.light"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/light.py:41-51"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/light2/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles light output 2.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "light.light2"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/light.py:52-61"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/RGBLight/state",
+      "category": "port_state_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Toggles the RGB light output state.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        }
+      ],
+      "used_by": [
+        "light.rgb_light"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:396-404",
+        "custom_components/ynblue/light.py:62-71"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/RGBLight/changeRGB",
+      "category": "feature_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_in_source",
+      "description": "Cycles the RGB light program by publishing the next state value.",
+      "payload_shape": {
+        "state": "boolean"
+      },
+      "payload_examples": [
+        {
+          "state": true
+        },
+        {
+          "state": false
+        }
+      ],
+      "used_by": [
+        "button.cycle_rgb_program"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:406-415",
+        "custom_components/ynblue/button.py:61-66"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/filter/consoReset",
+      "category": "reset_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Resets the filter consumption counter.",
+      "payload_shape": {},
+      "payload_examples": [
+        {}
+      ],
+      "used_by": [
+        "button.reset_filter_consumption"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:417-424",
+        "custom_components/ynblue/button.py:79-85"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/pH/consoReset",
+      "category": "reset_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Resets the pH consumption counter.",
+      "payload_shape": {},
+      "payload_examples": [
+        {}
+      ],
+      "used_by": [
+        "button.reset_ph_consumption"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:417-424",
+        "custom_components/ynblue/button.py:86-92"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/chemical/consoReset",
+      "category": "reset_command",
+      "direction": "publish_to_broker",
+      "confidence": "inferred_from_entities",
+      "description": "Resets the chemical consumption counter.",
+      "payload_shape": {},
+      "payload_examples": [
+        {}
+      ],
+      "used_by": [
+        "button.reset_chemical_consumption"
+      ],
+      "source_references": [
+        "custom_components/ynblue/hub.py:417-424",
+        "custom_components/ynblue/button.py:93-99"
+      ]
+    },
+    {
+      "topic": "/YnBlue/{device_id}/pH/calibration",
+      "category": "calibration_command",
+      "direction": "publish_to_broker",
+      "confidence": "confirmed_live",
+      "description": "Publishes a pH calibration command for a calibration point. Observed live, but not yet integrated into Home Assistant entities or services.",
+      "payload_shape": {
+        "id": "integer calibration point",
+        "value": "string reference value"
+      },
+      "payload_examples": [
+        {
+          "id": 1,
+          "value": "7"
+        },
+        {
+          "id": 1,
+          "value": "10"
+        },
+        {
+          "id": 2,
+          "value": "4"
+        }
+      ],
+      "related_snapshot_fields": [
+        "pH.calib1",
+        "pH.calib1Measured",
+        "pH.calib2",
+        "pH.calib2Measured",
+        "pH.calibEpoch",
+        "pH.calibration.state",
+        "pH.calibration.progress"
+      ],
+      "used_by": [
+        "live reverse-engineering only"
+      ],
+      "source_references": [
+        "live reverse-engineering session on 2026-08-01",
+        "redacted local device snapshot (not retained in this repository)"
+      ]
+    }
+  ]
+}
