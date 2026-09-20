@@ -356,22 +356,48 @@ class YnBlueHub:
     async def async_stop_ph_injection(self, device_id: str) -> None:
         """Stop the current manual pH injection."""
 
-        await self._async_execute_command(
+        snapshot = await self._async_execute_command(
             device_id,
             f"/YnBlue/{device_id}/pH/mode",
             {"mode": 2, "value": 0},
             post_delay=COMMAND_SETTLE_DELAY,
         )
+        if get_nested_value(snapshot, "pH", "injection", "state") is not False:
+            raise YnBlueCommandError(
+                "The YnBlue command did not produce the expected device state: pH stop unconfirmed"
+            )
 
     async def async_inject_ph(self, device_id: str) -> None:
         """Start a 1L manual pH injection."""
 
-        await self._async_execute_command(
+        snapshot = await self._async_execute_command(
             device_id,
             f"/YnBlue/{device_id}/pH/mode",
             {"mode": 2, "value": 1},
             post_delay=COMMAND_SETTLE_DELAY,
+            precondition=self._validate_ph_injection_start,
         )
+        if get_nested_value(snapshot, "pH", "injection", "state") is not True:
+            raise YnBlueCommandError(
+                "The YnBlue command did not produce the expected device state: pH start unconfirmed"
+            )
+
+    @staticmethod
+    def _validate_ph_injection_start(device: dict[str, Any]) -> None:
+        """Require the same filtration and dosing conditions as the vendor app."""
+
+        if get_nested_value(device, "filter", "state") is not True:
+            raise YnBlueCommandError(
+                "Cannot start pH injection: the YnBlue controller does not report running filtration. "
+                "A pump operated by another controller does not update this YnBlue state automatically."
+            )
+        if any(
+            get_nested_value(device, "chemical", section, "state") is True
+            for section in ("injection", "injectionExtra")
+        ):
+            raise YnBlueCommandError("Cannot start pH injection while chemical injection is active")
+        if get_nested_value(device, "pH", "injection", "state") is True:
+            raise YnBlueCommandError("A manual pH injection is already active; do not start another dose")
 
     async def async_set_ph_target(self, device_id: str, value: float) -> None:
         """Update the pH target."""
@@ -566,11 +592,14 @@ class YnBlueHub:
         *,
         expected_state: Mapping[str, Any] | None = None,
         post_delay: float = COMMAND_SETTLE_DELAY,
+        precondition: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Publish a command, refresh state, and verify the resulting snapshot."""
 
         async with self._async_device_lock(device_id):
-            self._require_online_device(device_id)
+            device = self._require_online_device(device_id)
+            if precondition is not None:
+                precondition(device)
             try:
                 await self.async_publish(topic, payload)
 

@@ -14,7 +14,7 @@ It signs in to the YnBlue cloud, refreshes the JWT automatically, polls controll
 
 YnBlue is YNEOM's connected pool control platform for residential pools. According to the official [YNEOM product](https://www.yneom.com/en/connected-pool/), [FAQ](https://www.yneom.com/en/faq/), and [app documentation](https://www.yneom.com/en/ynblue-app/), the upstream system covers automated filtration, automatic pH correction, water treatment management, alerts, and optional control of connected equipment such as heating, lighting, and robotic cleaners.
 
-The native YnBlue ecosystem is managed through the YnBlue mobile app and the `control.yneom-iot.com` web application documented by YNEOM. This integration brings that same controller fleet into Home Assistant with native entities, recovery logic, and automation-friendly state handling.
+The native YnBlue ecosystem is managed through the YnBlue mobile app and the [YnBlue web application](https://app.yneom-iot.com/). This integration brings that same controller fleet into Home Assistant with native entities, recovery logic, and automation-friendly state handling.
 
 ## Quick Start
 
@@ -103,6 +103,7 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - [Security hardening](docs/security-hardening.md)
 - [Release process](docs/release-process.md)
 - [Usage metrics and measurement limits](docs/usage-metrics.md)
+- [v0.3.3 release notes](docs/release-notes-v0.3.3.md)
 - [v0.3.2 release notes](docs/release-notes-v0.3.2.md)
 - [v0.3.2 technical release review](docs/release-review-v0.3.2.md)
 - [Core readiness notes](docs/core-readiness.md)
@@ -120,4 +121,4 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - Each release publishes one `ynblue.zip` package for HACS. Its GitHub download counter measures package requests, including installs, updates, and redownloads; it is not a unique-user counter.
 - Stable upgrades should be taken from tagged releases rather than arbitrary commits on `main`.
 - Read the [changelog](CHANGELOG.md) and the linked GitHub release notes before upgrading.
-- YnBlue 0.3.2 is supported on Home Assistant `2026.6.4` and newer. This minimum is backed by the live 2026.6.4 smoke test and a dedicated CI compatibility lane; 2026.8.1 has a separate regression lane.
+- YnBlue 0.3.3 retains Home Assistant `2026.6.4` as its minimum. Automated compatibility coverage runs on 2026.6.4 and 2026.8.1; the earlier v0.3.2 release also passed a live 2026.6.4 smoke test.

@@ -6,10 +6,21 @@ The format is based on Keep a Changelog and the versioning used by this reposito
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-20
+
 ### Added
 
 - Added a repeatable HACS ZIP package and release workflow so future package requests are visible through GitHub release-asset download counters
 - Documented the measurement limits and the initial 90-day adoption baseline
+
+### Fixed
+
+- Check controller-reported filtration and conflicting dosing before a manual pH start, with a specific error for externally operated pumps whose state is not reflected by YnBlue; keep stop commands independent of these start conditions
+- Require the post-command snapshot to confirm the requested manual pH injection state with a strict boolean for both start and stop actions; an opposite, missing, or malformed state now raises a command error instead of reporting success
+
+### Tests
+
+- Added regression coverage for pH start/stop confirmation, incomplete and malformed snapshots, transport failures without command retries, rejection before publishing when the controller is offline or live data is stale, and filtration/dosing preconditions evaluated under the command lock, including concurrent starts
 
 ## [0.3.2] - 2026-08-30
 

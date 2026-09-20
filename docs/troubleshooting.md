@@ -79,6 +79,18 @@ What to check:
 
 If a command is supposed to be supported but repeatedly fails with the controller online, open an issue with logs and the exact entity used.
 
+## Manual pH injection confirmation (v0.3.3 and later)
+
+Starting with v0.3.3, the snapshot after a manual pH start or stop command must report the requested `pH.injection.state`: boolean `true` for start and boolean `false` for stop. A contradictory, missing, or malformed state raises a command error; strings, numbers, and `null` are not confirmation. In v0.3.2, these actions only require the follow-up snapshot to arrive and do not verify the reported injection state.
+
+The integration sends each command once and does not automatically resend it when confirmation fails. The online and fresh-snapshot checks still run before sending a command.
+
+Before starting a dose, the controller must report `filter.state: true`, with no active chemical injection (`chemical.injection` or `chemical.injectionExtra`) or existing manual pH injection. These checks run inside the per-controller command lock. A stop command does not require running filtration.
+
+The official [YnBlue web app](https://app.yneom-iot.com/) also offers manual pH injection only while its own filtration state is running and the chemical dosing paths are inactive. Its start payload is the same `{"mode":2,"value":1}` used by this integration. If the pool pump is controlled externally, its physical operation alone does not update YnBlue's internal filtration state. Check the controller's filter configuration and the installation's wiring; do not automatically force a relay or bypass circulation requirements. The integration now explains this condition before sending an ineffective start command.
+
+A confirmation error after sending a command does not prove that no liquid was dispensed. Check the current controller state and the equipment before retrying. A confirmed controller state also does not independently prove physical pump operation or delivered volume. The Home Assistant button timestamp records a press attempt, not successful dosing.
+
 ## HACS installation does not show the integration
 
 YnBlue has been in the standard HACS integration catalog since July 2, 2026.
