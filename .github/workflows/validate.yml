@@ -4,13 +4,16 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "17 2 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   package:
     name: HACS release package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Build HACS package
@@ -19,7 +22,7 @@ jobs:
         run: unzip -l "$RUNNER_TEMP/ynblue.zip"
 
   hacs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: hacs/action@main
@@ -27,14 +30,14 @@ jobs:
           category: integration
 
   hassfest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: home-assistant/actions/hassfest@master
 
   test:
     name: Test (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

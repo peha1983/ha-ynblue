@@ -14,7 +14,7 @@ permissions: {}
 jobs:
   publish:
     name: Attach ynblue.zip to release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -43,4 +43,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/ynblue.zip" --clobber
+        run: gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/ynblue.zip"
