@@ -6,6 +6,8 @@ The format is based on Keep a Changelog and the versioning used by this reposito
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-04
+
 ### Fixed
 
 - Allow Home Assistant to select a compatible `paho-mqtt` version instead of forcing version 2.1.0, satisfying the updated hassfest dependency validation

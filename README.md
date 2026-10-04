@@ -103,6 +103,7 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - [Security hardening](docs/security-hardening.md)
 - [Release process](docs/release-process.md)
 - [Usage metrics and measurement limits](docs/usage-metrics.md)
+- [v0.3.4 release notes](docs/release-notes-v0.3.4.md)
 - [v0.3.3 release notes](docs/release-notes-v0.3.3.md)
 - [v0.3.2 release notes](docs/release-notes-v0.3.2.md)
 - [v0.3.2 technical release review](docs/release-review-v0.3.2.md)
@@ -121,4 +122,4 @@ One Home Assistant config entry represents one YnBlue cloud account and discover
 - Each release publishes one `ynblue.zip` package for HACS. Its GitHub download counter measures package requests, including installs, updates, and redownloads; it is not a unique-user counter.
 - Stable upgrades should be taken from tagged releases rather than arbitrary commits on `main`.
 - Read the [changelog](CHANGELOG.md) and the linked GitHub release notes before upgrading.
-- YnBlue 0.3.3 retains Home Assistant `2026.6.4` as its minimum. Automated compatibility coverage runs on 2026.6.4 and 2026.8.1; the earlier v0.3.2 release also passed a live 2026.6.4 smoke test.
+- YnBlue 0.3.4 retains Home Assistant `2026.6.4` as its minimum. Automated compatibility coverage runs on 2026.6.4 and 2026.8.1; the earlier v0.3.2 release also passed a live 2026.6.4 smoke test.
