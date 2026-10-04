@@ -15,7 +15,7 @@ jobs:
     name: HACS release package
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Build HACS package
         run: bash scripts/build-hacs-zip.sh "$RUNNER_TEMP/ynblue.zip"
       - name: Inspect package contents
@@ -24,7 +24,7 @@ jobs:
   hacs:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: hacs/action@main
         with:
           category: integration
@@ -32,7 +32,7 @@ jobs:
   hassfest:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: home-assistant/actions/hassfest@master
 
   test:
@@ -49,7 +49,7 @@ jobs:
             python-version: "3.14"
             requirements: requirements_test.txt
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
