@@ -7,7 +7,7 @@ YnBlue has been listed in the default HACS integration catalog since July 2, 202
 ## Release checklist
 
 1. Confirm the working tree is clean.
-2. Update documentation if user-visible behavior changed.
+2. Finalize the version in `custom_components/ynblue/manifest.json`, `CHANGELOG.md`, release notes, and any affected documentation before validation. A dependency declaration change is a user-distributed change and needs a new release to reach HACS installations.
 3. Run local validation:
 
    ```bash
@@ -22,20 +22,26 @@ YnBlue has been listed in the default HACS integration catalog since July 2, 202
 
    Keep both requirements files, workflow matrix, `hacs.json`, and user-facing support claims aligned when updating either baseline. A live smoke test on an intermediate version complements but does not replace automated regression coverage.
 
-4. Push the change to `main`.
-5. Confirm the GitHub `Validate` workflow is green on the exact release commit.
-6. Update `custom_components/ynblue/manifest.json` version if needed.
-7. Update `CHANGELOG.md`.
-8. Build and inspect the HACS package locally:
+4. Build and inspect the HACS package locally:
 
    ```bash
    bash scripts/build-hacs-zip.sh
    unzip -l dist/ynblue.zip
    ```
 
-9. Create a GitHub release with structured notes. Publishing the release triggers `Publish HACS package`, which validates the tag against the integration manifest and attaches `ynblue.zip`.
-10. Confirm that the release contains exactly one `ynblue.zip` asset and that its contents start with `manifest.json`, `__init__.py`, and the other integration files rather than a wrapper directory.
-11. Verify HACS sees and can install the new version.
+5. Review the diff and working tree, commit the final changes, and push the change to `main` through a reviewed pull request.
+6. Confirm the GitHub `Validate` workflow is green on the exact release commit. Any later change, including a version or documentation edit, requires validation again.
+7. Obtain explicit release approval. Create the matching tag and a GitHub release with structured notes on that validated commit. Publishing the release triggers `Publish HACS package`, which validates the tag against the integration manifest and attaches `ynblue.zip`.
+8. Confirm that the release contains exactly one `ynblue.zip` asset and that its contents start with `manifest.json`, `__init__.py`, and the other integration files rather than a wrapper directory. Never move an existing release tag or replace an existing public asset as a substitute for a new patch release.
+9. Verify HACS sees and can install the new version.
+
+## Continuous validation and security checks
+
+- Daily validation is requested at 02:17 UTC. GitHub can delay scheduled runs; the requested time is not a delivery guarantee.
+- Both workflows use `ubuntu-24.04`. Validate a future runner image with both Home Assistant lanes, HACS, hassfest, and ZIP construction before changing this baseline.
+- HACS and hassfest follow upstream validation rules. The hassfest action downloads a mutable container image, so pinning only its action commit does not freeze its rules. Fix valid compatibility findings rather than hiding them with an old validator.
+- Dependabot checks GitHub Actions weekly. Changes to the pinned Home Assistant test helpers remain deliberate compatibility updates that must keep the matrix and support claims aligned.
+- Repository settings enable Dependabot alerts and security-update proposals plus CodeQL default setup for Python and GitHub Actions. Review proposed changes and alerts; automatic merging is not enabled by this maintenance process.
 
 ## One-time ZIP tracking activation
 

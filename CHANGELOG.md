@@ -6,6 +6,17 @@ The format is based on Keep a Changelog and the versioning used by this reposito
 
 ## [Unreleased]
 
+### Fixed
+
+- Allow Home Assistant to select a compatible `paho-mqtt` version instead of forcing version 2.1.0, satisfying the updated hassfest dependency validation
+
+### Maintenance
+
+- Keep validation and release packaging on Ubuntu 24.04 until the next runner migration is tested
+- Move daily validation to 02:17 UTC to avoid the top-of-hour scheduling peak
+- Add weekly GitHub Actions dependency checks and clarify the release validation order
+- Refuse overwriting an existing HACS release asset when the publication workflow is repeated
+
 ## [0.3.3] - 2026-09-20
 
 ### Added
